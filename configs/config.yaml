@@ -1,0 +1,98 @@
+# FaceSense AI - Configuration File
+# Facial Expression Recognition System (FER2013)
+
+project:
+  name: "FaceSense AI"
+  seed: 42
+
+dataset:
+  name: "FER2013"
+  raw_data_dir: "Data(FER2013)"
+  train_split_dir: "Data(FER2013)/train"
+  test_split_dir: "Data(FER2013)/test"
+  image_size: [48, 48]
+  channels: 1  # Grayscale
+  color_mode: "grayscale"
+  val_split_ratio: 0.15
+  seed: 42
+
+classes:
+  num_classes: 7
+  names:
+    - "angry"
+    - "disgust"
+    - "fear"
+    - "happy"
+    - "neutral"
+    - "sad"
+    - "surprise"
+  mapping:
+    angry: 0
+    disgust: 1
+    fear: 2
+    happy: 3
+    neutral: 4
+    sad: 5
+    surprise: 6
+
+model:
+  architecture: "ResidualEmotionCNN"
+  channel_list: [32, 64, 128, 256]
+  fc_dim: 128
+  conv_dropout: 0.1
+  fc_dropout: 0.4
+
+augmentation:
+  horizontal_flip_prob: 0.5
+  rotation_degrees: 10
+  crop_scale: [0.85, 1.0]
+
+dataloader:
+  batch_size: 64
+  num_workers: 0          # Windows: multiprocessing spawn is extremely slow; 0 = main-process loading
+  pin_memory: false        # No GPU: pin_memory is a no-op and wastes time
+  persistent_workers: false # Must be false when num_workers=0
+  prefetch_factor: null    # Only valid when num_workers>0
+  use_weighted_sampler: true
+
+cpu:
+  num_threads: 8           # PyTorch intra-op threads (sweet spot for 12-core; avoids cache thrashing at 12)
+  use_compile: false       # Requires MSVC cl.exe on Windows — not available on this machine
+  use_bf16_autocast: false # CPU bfloat16 autocast: enable only if CPU has AVX-512 BF16 support
+
+training:
+  epochs: 50
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer: "adamw"
+  loss: "cross_entropy"
+  label_smoothing: 0.05
+  use_weighted_sampler: true
+  use_class_weighted_loss: false  # Kept false when use_weighted_sampler is true
+  early_stopping_patience: 10
+  scheduler:
+    name: "ReduceLROnPlateau"
+    mode: "max"
+    factor: 0.5
+    patience: 3
+    min_lr: 1.0e-6
+
+retraining:
+  candidate_epochs: 25
+  feedback_weight: 1.0          # Sample multiplier for feedback items
+  max_feedback_ratio: 0.20       # Max proportion of feedback relative to base FER2013 train set
+  min_macro_f1_delta: 0.0        # Minimum Macro F1 delta (%) required for promotion
+  max_accuracy_drop: 1.0         # Max allowable accuracy drop (%)
+  max_class_f1_degradation: 3.0  # Max allowable individual class F1 degradation (%)
+  auto_promote: true
+
+paths:
+  checkpoints_dir: "ml/models/checkpoints"
+  best_checkpoint_path: "ml/models/checkpoints/best_model.pt"
+  saved_models_dir: "ml/models"
+  outputs_metrics_dir: "outputs/metrics"
+  outputs_plots_dir: "outputs/plots"
+  outputs_feedback_dir: "outputs/feedback"
+  outputs_experiments_dir: "outputs/experiments"
+  logs_dir: "ml/evaluation/logs"

@@ -1,0 +1,27 @@
+# Virtual Environment
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Dataset
+Data(FER2013)/
+
+# Generated outputs
+outputs/
+
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,86 @@
+# FaceSense AI - Configuration File: Controlled 10-Epoch Experiment (Phase 5A)
+# Facial Expression Recognition System (FER2013)
+
+project:
+  name: "FaceSense AI - Exp 10-Epoch Cosine"
+  seed: 42
+
+dataset:
+  name: "FER2013"
+  raw_data_dir: "Data(FER2013)"
+  train_split_dir: "Data(FER2013)/train"
+  test_split_dir: "Data(FER2013)/test"
+  image_size: [48, 48]
+  channels: 1  # Grayscale
+  color_mode: "grayscale"
+  val_split_ratio: 0.15
+  seed: 42
+
+classes:
+  num_classes: 7
+  names:
+    - "angry"
+    - "disgust"
+    - "fear"
+    - "happy"
+    - "neutral"
+    - "sad"
+    - "surprise"
+  mapping:
+    angry: 0
+    disgust: 1
+    fear: 2
+    happy: 3
+    neutral: 4
+    sad: 5
+    surprise: 6
+
+model:
+  architecture: "BaselineEmotionCNN"
+  channel_list: [32, 64, 128, 256]
+  fc_dim: 128
+  conv_dropout: 0.25
+  fc_dropout: 0.5
+
+augmentation:
+  horizontal_flip_prob: 0.5
+  rotation_degrees: 10
+  crop_scale: [0.85, 1.0]
+
+dataloader:
+  batch_size: 64
+  num_workers: 4          # 4 workers on 12-core CPU; overlaps I/O with compute
+  pin_memory: false        # No GPU: pin_memory is a no-op and wastes time
+  persistent_workers: true # Keep workers alive between epochs (avoids re-spawn cost)
+  prefetch_factor: 2       # Each worker prefetches 2 batches ahead
+  use_weighted_sampler: true
+
+cpu:
+  num_threads: 8           # PyTorch intra-op threads (sweet spot for 12-core; avoids cache thrashing at 12)
+  use_compile: false       # Requires MSVC cl.exe on Windows — not available on this machine
+  use_bf16_autocast: false # CPU bfloat16 autocast: enable only if CPU has AVX-512 BF16 support
+
+training:
+  epochs: 10
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer: "adamw"
+  loss: "cross_entropy"
+  label_smoothing: 0.05
+  use_weighted_sampler: true
+  use_class_weighted_loss: false  # Kept false when use_weighted_sampler is true
+  early_stopping_patience: 10
+  scheduler:
+    name: "CosineAnnealingLR"
+    warmup_epochs: 1
+    warmup_start_factor: 0.1
+    min_lr: 1.0e-6
+
+paths:
+  checkpoints_dir: "ml/models/checkpoints/exp_10epoch_cosine"
+  best_checkpoint_path: "ml/models/checkpoints/exp_10epoch_cosine/best_model.pt"
+  saved_models_dir: "ml/models"
+  outputs_metrics_dir: "outputs/metrics/exp_10epoch_cosine"
+  outputs_plots_dir: "outputs/plots/exp_10epoch_cosine"
+  logs_dir: "ml/evaluation/logs"
