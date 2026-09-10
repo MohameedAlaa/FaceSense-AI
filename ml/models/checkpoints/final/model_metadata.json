@@ -1,31 +1,16 @@
 {
   "model_architecture": "ResidualEmotionCNN",
-  "dataset": "FER2013",
-  "input_size": [
-    1,
-    48,
-    48
-  ],
-  "number_of_classes": 7,
-  "class_names": [
-    "angry",
-    "disgust",
-    "fear",
-    "happy",
-    "neutral",
-    "sad",
-    "surprise"
-  ],
-  "best_epoch": 24,
-  "validation_macro_f1": 50.854277786459015,
-  "validation_accuracy": 56.09472951009984,
-  "validation_loss": 1.2685041512307087,
-  "test_accuracy": 55.628308721092225,
-  "test_macro_f1": 50.58246405837045,
-  "test_weighted_f1": 53.694283642145855,
-  "test_loss": 1.2576784229637288,
-  "checkpoint_source_path": "ml/models/checkpoints/residualemotioncnn_20260909_220237/best_model.pt",
-  "experiment_name": "residualemotioncnn_20260909_220237",
-  "total_parameters": 1259751,
-  "trainable_parameters": 1259751
+  "dataset": "FER2013 + Feedback Dataset",
+  "model_version": "ResidualEmotionCNN-Candidate-epoch39",
+  "promoted_at": "2026-09-10T17:47:19.184250+00:00",
+  "previous_backup": "C:\\Users\\moham\\OneDrive\\Desktop\\AI projects\\AI Emotion Detection\\ml\\models\\checkpoints\\final\\model_backup_epoch24_residualemotioncnn_20260909_220237_20260910_174719.pt",
+  "test_accuracy": 62.84480356645305,
+  "test_macro_f1": 61.42945294609008,
+  "test_weighted_f1": 62.25399382536511,
+  "test_loss": 1.0020116045469027,
+  "checkpoint_source_path": "C:\\Users\\moham\\OneDrive\\Desktop\\AI projects\\AI Emotion Detection\\outputs\\experiments\\retrain_phase11_20260910_151005\\checkpoints\\candidate_best_model.pt",
+  "improvement_over_baseline": {
+    "macro_f1_delta": 10.846988887719633,
+    "accuracy_delta": 7.2164948453608275
+  }
 }
