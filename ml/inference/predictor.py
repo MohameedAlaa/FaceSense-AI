@@ -172,6 +172,25 @@ class EmotionPredictor:
         self.model.eval()
         self.model_name = self.model.__class__.__name__
 
+        # Resolve model_version string from metadata or checkpoint
+        self.model_version = None
+        meta_path = self.checkpoint_path.parent / "model_metadata.json"
+        if meta_path.exists():
+            try:
+                import json
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta_data = json.load(f)
+                    self.model_version = meta_data.get("model_version")
+            except Exception:
+                pass
+
+        if not self.model_version:
+            self.model_version = (
+                f"{self.model_name}-epoch{self.best_epoch}"
+                if self.best_epoch is not None
+                else self.model_name
+            )
+
     def preprocess_image(
         self, image_input: Union[str, Path, Image.Image, np.ndarray]
     ) -> Tuple[torch.Tensor, Image.Image]:
@@ -239,7 +258,7 @@ class EmotionPredictor:
             "is_uncertain": is_uncertain,
             "confidence_threshold": threshold,
             "model_name": self.model_name,
-            "model_version": f"{self.model_name}-epoch{self.best_epoch}" if self.best_epoch is not None else self.model_name,
+            "model_version": self.model_version,
             "checkpoint_path": str(self.checkpoint_path.resolve()),
         }
 

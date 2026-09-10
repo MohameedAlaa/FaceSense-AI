@@ -120,15 +120,207 @@ class TestFaceDetectionAndWebcam(unittest.TestCase):
         self.assertEqual(annotated_frame.shape, test_frame_bgr.shape)
         self.assertIsInstance(preds, list)
 
+    def test_webcam_feedback_correct_recording(self):
+        """Verify pressing 'C' in webcam records correct feedback with proper metadata."""
+        test_fb_dir = PROJECT_ROOT / "tests" / "test_feedback_webcam_correct"
+        test_fb_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            app = WebcamEmotionApp(
+                checkpoint_path=self.checkpoint_path,
+                feedback_dir=test_fb_dir,
+            )
+
+            # Mock a frame with predictions
+            test_frame = np.zeros((200, 200, 3), dtype=np.uint8)
+            preds = [{
+                "predicted_emotion": "happy",
+                "raw_predicted_emotion": "happy",
+                "confidence": 0.95,
+                "bbox": (20, 20, 100, 100),
+            }]
+
+            record = app.handle_feedback("correct", frame=test_frame, predictions=preds, face_idx=0)
+            self.assertIsNotNone(record)
+            self.assertEqual(record["state"], "correct")
+            self.assertEqual(record["predicted_emotion"], "happy")
+            self.assertAlmostEqual(record["confidence"], 0.95, places=2)
+            self.assertIsNone(record["corrected_emotion"])
+            self.assertTrue(Path(record["image_path"]).exists())
+            self.assertEqual(record["model_version"], app.predictor.model_version)
+        finally:
+            import shutil
+            if test_fb_dir.exists():
+                shutil.rmtree(test_fb_dir, ignore_errors=True)
+
+    def test_webcam_feedback_incorrect_with_corrected_label(self):
+        """Verify recording incorrect feedback with user corrected emotion label."""
+        test_fb_dir = PROJECT_ROOT / "tests" / "test_feedback_webcam_incorrect"
+        test_fb_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            app = WebcamEmotionApp(
+                checkpoint_path=self.checkpoint_path,
+                feedback_dir=test_fb_dir,
+            )
+
+            test_frame = np.zeros((200, 200, 3), dtype=np.uint8)
+            preds = [{
+                "predicted_emotion": "sad",
+                "raw_predicted_emotion": "sad",
+                "confidence": 0.60,
+                "bbox": (10, 10, 80, 80),
+            }]
+
+            record = app.handle_feedback(
+                "incorrect",
+                frame=test_frame,
+                predictions=preds,
+                face_idx=0,
+                corrected_emotion="neutral",
+            )
+            self.assertIsNotNone(record)
+            self.assertEqual(record["state"], "incorrect")
+            self.assertEqual(record["predicted_emotion"], "sad")
+            self.assertEqual(record["corrected_emotion"], "neutral")
+            self.assertTrue(Path(record["image_path"]).exists())
+        finally:
+            import shutil
+            if test_fb_dir.exists():
+                shutil.rmtree(test_fb_dir, ignore_errors=True)
+
+    def test_webcam_feedback_uncertain_recording(self):
+        """Verify recording uncertain feedback from webcam application."""
+        test_fb_dir = PROJECT_ROOT / "tests" / "test_feedback_webcam_uncertain"
+        test_fb_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            app = WebcamEmotionApp(
+                checkpoint_path=self.checkpoint_path,
+                feedback_dir=test_fb_dir,
+            )
+
+            test_frame = np.zeros((200, 200, 3), dtype=np.uint8)
+            preds = [{
+                "predicted_emotion": "uncertain",
+                "raw_predicted_emotion": "fear",
+                "confidence": 0.28,
+                "bbox": (15, 15, 60, 60),
+            }]
+
+            record = app.handle_feedback("uncertain", frame=test_frame, predictions=preds, face_idx=0)
+            self.assertIsNotNone(record)
+            self.assertEqual(record["state"], "uncertain")
+            self.assertTrue(Path(record["image_path"]).exists())
+            self.assertEqual(record["model_version"], app.predictor.model_version)
+        finally:
+            import shutil
+            if test_fb_dir.exists():
+                shutil.rmtree(test_fb_dir, ignore_errors=True)
+
+    def test_webcam_feedback_model_version_tracking(self):
+        """Verify webcam feedback automatically reads and records the active production model version."""
+        test_fb_dir = PROJECT_ROOT / "tests" / "test_feedback_webcam_mv"
+        test_fb_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            app = WebcamEmotionApp(
+                checkpoint_path=self.checkpoint_path,
+                feedback_dir=test_fb_dir,
+            )
+
+            test_frame = np.zeros((100, 100, 3), dtype=np.uint8)
+            preds = [{"predicted_emotion": "happy", "confidence": 0.9, "bbox": (0, 0, 50, 50)}]
+
+            record = app.handle_feedback("correct", frame=test_frame, predictions=preds, face_idx=0)
+            self.assertIsNotNone(record)
+            # Must match promoted model version
+            self.assertEqual(record["model_version"], "ResidualEmotionCNN-Candidate-epoch39")
+        finally:
+            import shutil
+            if test_fb_dir.exists():
+                shutil.rmtree(test_fb_dir, ignore_errors=True)
+
+    def test_webcam_feedback_invalid_corrected_label(self):
+        """Verify providing an invalid corrected label is rejected cleanly."""
+        test_fb_dir = PROJECT_ROOT / "tests" / "test_feedback_webcam_invalid"
+        test_fb_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            app = WebcamEmotionApp(
+                checkpoint_path=self.checkpoint_path,
+                feedback_dir=test_fb_dir,
+            )
+
+            test_frame = np.zeros((100, 100, 3), dtype=np.uint8)
+            preds = [{"predicted_emotion": "sad", "confidence": 0.5, "bbox": (0, 0, 50, 50)}]
+
+            # Mock input function providing invalid emotion then cancelling
+            inputs = iter(["invalid_label", "cancel"])
+            res = app.handle_feedback("incorrect", frame=test_frame, predictions=preds, face_idx=0, input_func=lambda _: next(inputs))
+            self.assertIsNone(res)
+        finally:
+            import shutil
+            if test_fb_dir.exists():
+                shutil.rmtree(test_fb_dir, ignore_errors=True)
+
+    def test_webcam_feedback_multi_face_selection(self):
+        """Verify feedback target correctly points to the selected face in multi-face frames."""
+        test_fb_dir = PROJECT_ROOT / "tests" / "test_feedback_webcam_multiface"
+        test_fb_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            app = WebcamEmotionApp(
+                checkpoint_path=self.checkpoint_path,
+                feedback_dir=test_fb_dir,
+            )
+
+            test_frame = np.zeros((300, 300, 3), dtype=np.uint8)
+            preds = [
+                {"predicted_emotion": "happy", "confidence": 0.90, "bbox": (10, 10, 50, 50)},
+                {"predicted_emotion": "angry", "confidence": 0.85, "bbox": (100, 100, 60, 60)},
+            ]
+
+            # Submit feedback for face 1 (index 0)
+            rec1 = app.handle_feedback("correct", frame=test_frame, predictions=preds, face_idx=0)
+            self.assertEqual(rec1["predicted_emotion"], "happy")
+            self.assertEqual(rec1["metadata"]["face_index"], 1)
+
+            # Submit feedback for face 2 (index 1)
+            rec2 = app.handle_feedback("correct", frame=test_frame, predictions=preds, face_idx=1)
+            self.assertEqual(rec2["predicted_emotion"], "angry")
+            self.assertEqual(rec2["metadata"]["face_index"], 2)
+        finally:
+            import shutil
+            if test_fb_dir.exists():
+                shutil.rmtree(test_fb_dir, ignore_errors=True)
+
+    def test_webcam_feedback_image_persistence(self):
+        """Verify saved face crop image exists on disk and is readable."""
+        test_fb_dir = PROJECT_ROOT / "tests" / "test_feedback_webcam_persist"
+        test_fb_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            app = WebcamEmotionApp(
+                checkpoint_path=self.checkpoint_path,
+                feedback_dir=test_fb_dir,
+            )
+
+            test_frame = np.full((120, 120, 3), 180, dtype=np.uint8)
+            preds = [{"predicted_emotion": "surprise", "confidence": 0.88, "bbox": (10, 10, 60, 60)}]
+
+            record = app.handle_feedback("correct", frame=test_frame, predictions=preds, face_idx=0)
+            img_path = Path(record["image_path"])
+            self.assertTrue(img_path.exists())
+            saved_cv = cv2.imread(str(img_path))
+            self.assertIsNotNone(saved_cv)
+            self.assertGreater(saved_cv.size, 0)
+        finally:
+            import shutil
+            if test_fb_dir.exists():
+                shutil.rmtree(test_fb_dir, ignore_errors=True)
+
     def test_confidence_threshold_in_webcam_app(self):
         """Verify confidence threshold marks predictions as 'uncertain' when below threshold."""
         app = WebcamEmotionApp(
             checkpoint_path=self.checkpoint_path,
-            confidence_threshold=0.9999, # Force uncertain
+            confidence_threshold=0.9999,  # Force uncertain
         )
 
         dummy_face = cv2.imread(str(self.real_img_path))
-        # Direct prediction test with app's predictor
         res = app.predictor.predict(dummy_face, confidence_threshold=app.confidence_threshold)
         self.assertEqual(res["predicted_emotion"], "uncertain")
         self.assertTrue(res["is_uncertain"])
@@ -136,3 +328,5 @@ class TestFaceDetectionAndWebcam(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

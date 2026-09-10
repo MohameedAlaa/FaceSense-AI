@@ -15,6 +15,22 @@ from PIL import Image
 # Default valid FER2013 emotion classes
 DEFAULT_VALID_EMOTIONS = ("angry", "disgust", "fear", "happy", "neutral", "sad", "surprise")
 UNCERTAIN_LABEL = "uncertain"
+DEFAULT_METADATA_PATH = "ml/models/checkpoints/final/model_metadata.json"
+
+
+def get_default_model_version(metadata_path: Union[str, Path] = DEFAULT_METADATA_PATH) -> str:
+    """Reads the current promoted model version from model_metadata.json, with fallback."""
+    meta_p = Path(metadata_path)
+    if meta_p.exists():
+        try:
+            with open(meta_p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                v = data.get("model_version")
+                if v:
+                    return str(v)
+        except Exception:
+            pass
+    return "ResidualEmotionCNN-Candidate-epoch39"
 
 
 class FeedbackState(str, Enum):
@@ -44,7 +60,7 @@ class FeedbackCollector:
         feedback_dir: Union[str, Path] = "outputs/feedback",
         log_filename: str = "feedback_records.jsonl",
         valid_emotions: Optional[Union[List[str], Tuple[str, ...]]] = None,
-        default_model_version: str = "ResidualEmotionCNN-v2-epoch24",
+        default_model_version: Optional[str] = None,
     ):
         self.feedback_dir = Path(feedback_dir)
         self.feedback_dir.mkdir(parents=True, exist_ok=True)
@@ -53,7 +69,11 @@ class FeedbackCollector:
 
         self.log_path = self.feedback_dir / log_filename
         self.valid_emotions = tuple(valid_emotions) if valid_emotions else DEFAULT_VALID_EMOTIONS
-        self.default_model_version = str(default_model_version)
+        self.default_model_version = (
+            str(default_model_version)
+            if default_model_version is not None
+            else get_default_model_version()
+        )
 
     def validate_record(
         self,

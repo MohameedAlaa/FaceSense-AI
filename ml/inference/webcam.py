@@ -1,11 +1,15 @@
 """
-FaceSense AI - Real-Time Webcam Facial Expression Recognition Application
+FaceSense AI - Real-Time Webcam Facial Expression Recognition & Interactive Feedback Application
 Pipeline:
-  Camera frame -> Face Detection -> Face Crop -> EmotionPredictor -> Overlays (BBox, Label, Confidence, FPS)
+  Camera frame -> Face Detection -> Face Crop -> EmotionPredictor -> Interactive Feedback -> Overlays
 
 Keyboard Controls:
-  - Q: Quit application
-  - S: Save snapshot frame with annotations
+  - [C]: Mark selected face prediction as CORRECT
+  - [W]: Mark selected face prediction as INCORRECT (terminal prompt for corrected emotion)
+  - [U]: Mark selected face prediction as UNCERTAIN
+  - [1-9]: Select specific face index in multi-face scenes
+  - [S]: Save snapshot frame with annotations
+  - [Q] / [ESC]: Quit application
 """
 
 import argparse
@@ -13,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 import sys
 import time
-from typing import List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import cv2
 import numpy as np
 
@@ -24,6 +28,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ml.detection.detector import FaceDetector
 from ml.inference.predictor import EmotionPredictor
+from ml.feedback.webcam_feedback import WebcamFeedbackHandler
 
 
 # Emotion color map for visual cues (BGR format)
@@ -41,8 +46,9 @@ EMOTION_COLORS = {
 
 class WebcamEmotionApp:
     """
-    Real-Time Webcam Face & Emotion Recognition Application.
-    Orchestrates camera capture, multi-face detection, CNN prediction, and annotated rendering.
+    Real-Time Webcam Face & Emotion Recognition Application with Interactive Feedback.
+    Orchestrates camera capture, multi-face detection, CNN prediction, interactive feedback
+    recording (C/W/U keys), face selection (1-9), and annotated rendering.
     """
 
     def __init__(
@@ -53,12 +59,14 @@ class WebcamEmotionApp:
         scale_factor: float = 1.1,
         min_neighbors: int = 5,
         snapshots_dir: Union[str, Path] = "outputs/snapshots",
+        feedback_dir: Union[str, Path] = "outputs/feedback",
     ):
         self.checkpoint_path = Path(checkpoint_path)
         self.camera_id = camera_id
         self.confidence_threshold = confidence_threshold
         self.snapshots_dir = Path(snapshots_dir)
         self.snapshots_dir.mkdir(parents=True, exist_ok=True)
+        self.feedback_dir = Path(feedback_dir)
 
         print("[FaceSense AI] Initializing Face Detector...")
         self.detector = FaceDetector(
@@ -72,6 +80,14 @@ class WebcamEmotionApp:
             confidence_threshold=self.confidence_threshold,
         )
 
+        self.feedback_handler = WebcamFeedbackHandler(
+            feedback_dir=self.feedback_dir,
+            model_version=self.predictor.model_version,
+        )
+
+        self.selected_face_idx = 0
+        self.last_frame: Optional[np.ndarray] = None
+        self.last_predictions: List[dict] = []
         self.fps = 0.0
         self._prev_time = time.time()
 
@@ -92,11 +108,18 @@ class WebcamEmotionApp:
         if frame is None or frame.size == 0:
             return frame, []
 
+        self.last_frame = frame.copy()
         display_frame = frame.copy() if draw_overlay else frame
         face_bboxes = self.detector.detect_faces(frame)
         face_predictions = []
 
-        for bbox in face_bboxes:
+        # Maintain selected face index in bounds
+        if face_bboxes:
+            self.selected_face_idx = min(self.selected_face_idx, len(face_bboxes) - 1)
+        else:
+            self.selected_face_idx = 0
+
+        for i, bbox in enumerate(face_bboxes):
             x, y, w, h = bbox
             try:
                 face_crop = self.detector.crop_face(frame, bbox, margin_ratio=0.05)
@@ -104,23 +127,28 @@ class WebcamEmotionApp:
                     face_crop, confidence_threshold=self.confidence_threshold
                 )
                 pred_result["bbox"] = bbox
+                pred_result["face_idx"] = i + 1
                 face_predictions.append(pred_result)
 
                 if draw_overlay:
-                    self._draw_face_annotation(display_frame, bbox, pred_result)
+                    is_selected = (i == self.selected_face_idx)
+                    self._draw_face_annotation(
+                        display_frame, bbox, pred_result, face_idx=i + 1, is_selected=is_selected
+                    )
             except Exception as e:
-                # If face crop or prediction fails for a single box, log and continue
                 if draw_overlay:
                     cv2.rectangle(display_frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
                     cv2.putText(
                         display_frame,
-                        "Error",
-                        (x, y - 10),
+                        f"Error: {e}",
+                        (x, max(0, y - 10)),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
+                        0.5,
                         (0, 0, 255),
-                        2,
+                        1,
                     )
+
+        self.last_predictions = face_predictions
 
         if draw_overlay:
             self._draw_status_bar(display_frame, num_faces=len(face_bboxes))
@@ -128,9 +156,14 @@ class WebcamEmotionApp:
         return display_frame, face_predictions
 
     def _draw_face_annotation(
-        self, frame: np.ndarray, bbox: Tuple[int, int, int, int], pred: dict
+        self,
+        frame: np.ndarray,
+        bbox: Tuple[int, int, int, int],
+        pred: dict,
+        face_idx: int = 1,
+        is_selected: bool = False,
     ) -> None:
-        """Draws bounding box, label tag, and confidence on a detected face."""
+        """Draws bounding box, label tag, selection indicator, and confidence on a detected face."""
         x, y, w, h = bbox
         emotion = pred["predicted_emotion"].lower()
         conf = pred["confidence"] * 100.0
@@ -138,37 +171,53 @@ class WebcamEmotionApp:
         color = EMOTION_COLORS.get(emotion, (0, 255, 0))
 
         # 1. Main bounding box
-        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+        box_thickness = 3 if is_selected else 2
+        cv2.rectangle(frame, (x, y), (x + w, y + h), color, box_thickness)
 
-        # 2. Text label
-        label_text = f"{emotion.capitalize()} ({conf:.1f}%)"
+        # 2. Selected face border accent
+        if is_selected:
+            # Draw subtle gold/white corners or outer marker
+            corner_len = min(15, w // 4, h // 4)
+            accent_col = (0, 215, 255)  # Gold in BGR
+            cv2.line(frame, (x - 4, y - 4), (x - 4 + corner_len, y - 4), accent_col, 2)
+            cv2.line(frame, (x - 4, y - 4), (x - 4, y - 4 + corner_len), accent_col, 2)
+            cv2.line(frame, (x + w + 4, y - 4), (x + w + 4 - corner_len, y - 4), accent_col, 2)
+            cv2.line(frame, (x + w + 4, y - 4), (x + w + 4, y - 4 + corner_len), accent_col, 2)
+            cv2.line(frame, (x - 4, y + h + 4), (x - 4 + corner_len, y + h + 4), accent_col, 2)
+            cv2.line(frame, (x - 4, y + h + 4), (x - 4, y + h + 4 - corner_len), accent_col, 2)
+            cv2.line(frame, (x + w + 4, y + h + 4), (x + w + 4 - corner_len, y + h + 4), accent_col, 2)
+            cv2.line(frame, (x + w + 4, y + h + 4), (x + w + 4, y + h + 4 - corner_len), accent_col, 2)
+
+        # 3. Text label
+        sel_prefix = f"[{face_idx}*] " if is_selected else f"[{face_idx}] "
         if pred["is_uncertain"]:
-            label_text = f"Uncertain ({conf:.1f}%)"
+            label_text = f"{sel_prefix}Uncertain ({conf:.1f}%)"
+        else:
+            label_text = f"{sel_prefix}{emotion.capitalize()} ({conf:.1f}%)"
 
         # Label background pill
         (text_w, text_h), baseline = cv2.getTextSize(
-            label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2
+            label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2
         )
         pill_y1 = max(0, y - text_h - 10)
         pill_y2 = y
         pill_x2 = min(frame.shape[1], x + text_w + 10)
 
         cv2.rectangle(frame, (x, pill_y1), (pill_x2, pill_y2), color, cv2.FILLED)
-        # Black text for high contrast on bright pills, white on dark
         text_color = (0, 0, 0) if emotion in ["happy", "surprise", "neutral"] else (255, 255, 255)
         cv2.putText(
             frame,
             label_text,
             (x + 5, y - 6),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
+            0.55,
             text_color,
             2,
             cv2.LINE_AA,
         )
 
     def _draw_status_bar(self, frame: np.ndarray, num_faces: int) -> None:
-        """Draws FPS and control hints overlay on top header of frame."""
+        """Draws FPS, control hints, and temporary feedback status toasts on header."""
         # Calculate current FPS
         curr_time = time.time()
         dt = curr_time - self._prev_time
@@ -177,28 +226,164 @@ class WebcamEmotionApp:
             current_fps = 1.0 / dt
             self.fps = 0.9 * self.fps + 0.1 * current_fps if self.fps > 0 else current_fps
 
-        # Header overlay banner
         h, w = frame.shape[:2]
-        header_h = 35
+        header_h = 50
         overlay = frame.copy()
         cv2.rectangle(overlay, (0, 0), (w, header_h), (20, 20, 20), cv2.FILLED)
-        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+        cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
 
-        # Status text
-        status_text = (
-            f"FaceSense AI | Faces: {num_faces} | FPS: {self.fps:.1f} | "
-            f"Thresh: {self.confidence_threshold:.2f} | [S] Save [Q] Quit"
+        # Status text line 1
+        selected_display = (self.selected_face_idx + 1) if num_faces > 0 else 0
+        line1 = (
+            f"FaceSense AI | Model: {self.predictor.model_version} | "
+            f"Faces: {num_faces} (Selected: {selected_display}) | FPS: {self.fps:.1f}"
         )
         cv2.putText(
             frame,
-            status_text,
-            (10, 24),
+            line1,
+            (10, 18),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
+            0.48,
             (255, 255, 255),
             1,
             cv2.LINE_AA,
         )
+
+        # Status text line 2 (Controls)
+        line2 = "[C] Correct  [W] Wrong  [U] Uncertain  [1-9] Select Face  [S] Save  [Q] Quit"
+        cv2.putText(
+            frame,
+            line2,
+            (10, 38),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (0, 215, 255),
+            1,
+            cv2.LINE_AA,
+        )
+
+        # ── Feedback Status Toast Overlay ──────────────────────────
+        hud_info = self.feedback_handler.get_hud_status()
+        if hud_info:
+            msg, is_error = hud_info
+            toast_h = 28
+            toast_y = h - toast_h - 10
+            toast_bg = (0, 0, 180) if is_error else (30, 140, 30)  # Red for error, Green for success
+            toast_overlay = frame.copy()
+            cv2.rectangle(toast_overlay, (0, toast_y), (w, toast_y + toast_h), toast_bg, cv2.FILLED)
+            cv2.addWeighted(toast_overlay, 0.85, frame, 0.15, 0, frame)
+            cv2.putText(
+                frame,
+                f" {msg}",
+                (15, toast_y + 19),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+
+    def handle_feedback(
+        self,
+        action: str,  # "correct", "incorrect", "uncertain"
+        frame: Optional[np.ndarray] = None,
+        predictions: Optional[List[dict]] = None,
+        face_idx: Optional[int] = None,
+        corrected_emotion: Optional[str] = None,
+        input_func: Callable[[str], str] = input,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Processes interactive or programmatic feedback for the selected face.
+
+        Args:
+            action: 'correct', 'incorrect', or 'uncertain'.
+            frame: Input frame ndarray (defaults to last processed frame).
+            predictions: Face predictions list (defaults to last predictions).
+            face_idx: 0-based face index to target (defaults to self.selected_face_idx).
+            corrected_emotion: Ground-truth label for 'incorrect' (if None, prompts via terminal).
+            input_func: Custom input function for terminal prompt (defaults to input).
+
+        Returns:
+            The recorded feedback record dict, or None if skipped/cancelled.
+        """
+        target_frame = frame if frame is not None else self.last_frame
+        target_preds = predictions if predictions is not None else self.last_predictions
+
+        if target_frame is None or not target_preds:
+            msg = "No detected face available to submit feedback"
+            self.feedback_handler.set_hud_status(msg, is_error=True)
+            print(f"\n[FaceSense AI Feedback] {msg}.")
+            return None
+
+        # Resolve face index
+        sel_idx = face_idx if face_idx is not None else self.selected_face_idx
+        sel_idx = max(0, min(sel_idx, len(target_preds) - 1))
+        target_pred = target_preds[sel_idx]
+        bbox = target_pred.get("bbox")
+
+        # Extract face crop
+        try:
+            if bbox is not None:
+                face_crop = self.detector.crop_face(target_frame, bbox, margin_ratio=0.05)
+            else:
+                face_crop = target_frame
+        except Exception as e:
+            print(f"[FaceSense AI Feedback] Face cropping failed: {e}")
+            face_crop = target_frame
+
+        pred_emotion = target_pred.get("raw_predicted_emotion", target_pred.get("predicted_emotion", "unknown"))
+        conf = float(target_pred.get("confidence", 1.0))
+        act = action.strip().lower()
+
+        if act == "correct":
+            return self.feedback_handler.record_feedback(
+                face_image=face_crop,
+                state="correct",
+                predicted_emotion=pred_emotion,
+                confidence=conf,
+                bounding_box=bbox,
+                face_idx=sel_idx + 1,
+            )
+
+        elif act == "uncertain":
+            return self.feedback_handler.record_feedback(
+                face_image=face_crop,
+                state="uncertain",
+                predicted_emotion=pred_emotion,
+                confidence=conf,
+                bounding_box=bbox,
+                face_idx=sel_idx + 1,
+            )
+
+        elif act == "incorrect":
+            if corrected_emotion is None:
+                corrected_emotion = self.feedback_handler.prompt_for_corrected_emotion(
+                    face_idx=sel_idx + 1,
+                    predicted_emotion=pred_emotion,
+                    input_func=input_func,
+                )
+
+            if not corrected_emotion:
+                self.feedback_handler.set_hud_status("Feedback Cancelled", is_error=True)
+                return None
+
+            try:
+                return self.feedback_handler.record_feedback(
+                    face_image=face_crop,
+                    state="incorrect",
+                    predicted_emotion=pred_emotion,
+                    confidence=conf,
+                    corrected_emotion=corrected_emotion,
+                    bounding_box=bbox,
+                    face_idx=sel_idx + 1,
+                )
+            except Exception as e:
+                self.feedback_handler.set_hud_status(f"Error: {e}", is_error=True)
+                print(f"[FaceSense AI Feedback] Failed to record feedback: {e}")
+                return None
+
+        else:
+            raise ValueError(f"Unknown feedback action '{action}'. Must be 'correct', 'incorrect', or 'uncertain'.")
 
     def run(self) -> None:
         """Starts real-time video capture loop from webcam."""
@@ -216,12 +401,17 @@ class WebcamEmotionApp:
         window_name = "FaceSense AI - Real-Time Facial Expression Recognition"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
 
-        print("\n" + "=" * 65)
+        print("\n" + "=" * 68)
         print("  FaceSense AI Live Webcam Running")
+        print(f"  Model Version : {self.predictor.model_version}")
         print("  Controls:")
-        print("    [Q] Quit application")
-        print("    [S] Save annotated snapshot")
-        print("=" * 65 + "\n")
+        print("    [C]   Mark selected face as CORRECT prediction")
+        print("    [W]   Mark selected face as WRONG (incorrect) prediction")
+        print("    [U]   Mark selected face as UNCERTAIN prediction")
+        print("    [1-9] Select face index in multi-face scenes")
+        print("    [S]   Save annotated snapshot")
+        print("    [Q]   Quit application")
+        print("=" * 68 + "\n")
 
         try:
             while True:
@@ -244,7 +434,20 @@ class WebcamEmotionApp:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     snap_path = self.snapshots_dir / f"snapshot_{timestamp}.jpg"
                     cv2.imwrite(str(snap_path), annotated_frame)
+                    self.feedback_handler.set_hud_status(f"Snapshot Saved: {snap_path.name}")
                     print(f"[FaceSense AI] Saved snapshot to: {snap_path}")
+                elif key == ord("c") or key == ord("C"):
+                    self.handle_feedback("correct")
+                elif key == ord("u") or key == ord("U"):
+                    self.handle_feedback("uncertain")
+                elif key == ord("w") or key == ord("W"):
+                    self.handle_feedback("incorrect")
+                elif ord("1") <= key <= ord("9"):
+                    num = key - ord("1")
+                    if self.last_predictions:
+                        self.selected_face_idx = min(num, len(self.last_predictions) - 1)
+                        self.feedback_handler.set_hud_status(f"Selected Face {self.selected_face_idx + 1}")
+                        print(f"[FaceSense AI] Selected Face {self.selected_face_idx + 1}")
 
         finally:
             cap.release()
@@ -283,6 +486,12 @@ def parse_args():
         help="Directory to store captured snapshots.",
     )
     parser.add_argument(
+        "--feedback-dir",
+        type=str,
+        default="outputs/feedback",
+        help="Directory to store logged user feedback.",
+    )
+    parser.add_argument(
         "--test-image",
         type=str,
         default=None,
@@ -299,6 +508,7 @@ def main():
         camera_id=args.camera,
         confidence_threshold=args.threshold,
         snapshots_dir=args.snapshots_dir,
+        feedback_dir=args.feedback_dir,
     )
 
     if args.test_image:

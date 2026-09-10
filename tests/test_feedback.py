@@ -289,7 +289,7 @@ class TestFeedbackModule(unittest.TestCase):
         pred_res = predictor.predict(self.real_img_path)
 
         self.assertIn("model_version", pred_res)
-        self.assertEqual(pred_res["model_version"], f"ResidualEmotionCNN-epoch{predictor.best_epoch}")
+        self.assertEqual(pred_res["model_version"], predictor.model_version)
 
         record = self.collector.add_feedback(
             image_path=self.real_img_path,
