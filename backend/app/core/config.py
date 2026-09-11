@@ -19,10 +19,26 @@ class Settings(BaseModel):
     CORS_ALLOW_METHODS: List[str] = ["*"]
     CORS_ALLOW_HEADERS: List[str] = ["*"]
 
-    # Database placeholder (PostgreSQL in future phases)
+    # Database settings (PostgreSQL)
     DATABASE_URL: Optional[str] = Field(
         default=os.getenv("DATABASE_URL", None),
-        description="Placeholder for future PostgreSQL database connection URL"
+        description="PostgreSQL database connection URL (e.g. postgresql+psycopg://user:pass@host:5432/dbname)"
+    )
+    DATABASE_ECHO: bool = Field(
+        default=os.getenv("DATABASE_ECHO", "false").lower() in ("true", "1", "yes"),
+        description="Whether SQLAlchemy should log SQL statements"
+    )
+    DATABASE_POOL_SIZE: int = Field(
+        default=int(os.getenv("DATABASE_POOL_SIZE", "5")),
+        description="The number of connections to keep open inside the connection pool"
+    )
+    DATABASE_MAX_OVERFLOW: int = Field(
+        default=int(os.getenv("DATABASE_MAX_OVERFLOW", "10")),
+        description="The number of connections to allow in overflow"
+    )
+    DATABASE_POOL_TIMEOUT: int = Field(
+        default=int(os.getenv("DATABASE_POOL_TIMEOUT", "30")),
+        description="The number of seconds to wait before giving up on returning a connection"
     )
 
     # ML Configuration & Paths

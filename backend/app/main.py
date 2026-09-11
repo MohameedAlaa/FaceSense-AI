@@ -1,6 +1,10 @@
-from fastapi import FastAPI, Request
+from typing import Optional
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
+
+from backend.app.db.session import get_db, check_db_connection
 
 from backend.app.api.v1.api import api_router
 from backend.app.core.config import settings
@@ -57,11 +61,16 @@ async def generic_backend_exception_handler(request: Request, exc: BackendError)
 
 # Root Health Check
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
-def root_health() -> HealthResponse:
+def root_health(db: Optional[Session] = Depends(get_db)) -> HealthResponse:
+    db_status = "not_configured"
+    if settings.DATABASE_URL and settings.DATABASE_URL.strip():
+        db_status = "connected" if check_db_connection(db) else "disconnected"
+
     return HealthResponse(
         status="ok",
         service=settings.PROJECT_NAME,
         version=settings.VERSION,
+        database=db_status,
     )
 
 
