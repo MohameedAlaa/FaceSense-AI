@@ -103,6 +103,9 @@ def get_db() -> Generator[Optional[Session], None, None]:
     finally:
         session.close()
 
+# Alias for endpoints that gracefully handle missing database connection
+get_db_optional = get_db
+
 
 def check_db_connection(session: Optional[Session] = None) -> bool:
     """

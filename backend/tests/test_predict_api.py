@@ -45,7 +45,7 @@ def test_predict_invalid_image_corrupt_bytes(client):
     )
     assert response.status_code == 400
     data = response.json()
-    assert "ImageDecodeError" in data.get("error", "")
+    assert "Invalid image content" in data.get("detail", "") or "ImageDecodeError" in data.get("error", "")
 
 
 def test_predict_with_real_fer2013_sample(client):

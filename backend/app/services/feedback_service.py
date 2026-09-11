@@ -44,6 +44,7 @@ class FeedbackService:
         self,
         request: FeedbackCreateRequest,
         db: Optional[Session] = None,
+        user_id: Optional[int] = None,
     ) -> FeedbackCreateResponse:
         """
         Processes feedback request:
@@ -55,6 +56,8 @@ class FeedbackService:
         if request.notes:
             metadata["notes"] = request.notes
         metadata["source"] = "api_v1"
+        if user_id is not None:
+            metadata["user_id"] = user_id
 
         state_val = request.feedback_type.lower()
         if state_val == "correct":
@@ -97,6 +100,7 @@ class FeedbackService:
             try:
                 db_record = FeedbackRecord(
                     feedback_id=record_id,
+                    user_id=user_id,
                     state=record.get("state", fb_state.value),
                     predicted_emotion=record.get("predicted_emotion", request.predicted_emotion),
                     confidence=float(record.get("confidence", request.confidence)),

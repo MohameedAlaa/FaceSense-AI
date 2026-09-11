@@ -178,6 +178,9 @@ def test_api_feedback_endpoint_with_db(client_with_db, isolated_feedback_service
     assert rec.predicted_emotion == "happy"
 
 
+from backend.app.models.user import User
+from backend.app.core.security import create_access_token
+
 def test_api_feedback_stats_with_db(client_with_db, test_db_session: Session):
     """Test API GET /api/v1/feedback/stats reads from database."""
     record = FeedbackRecord(
@@ -187,9 +190,13 @@ def test_api_feedback_stats_with_db(client_with_db, test_db_session: Session):
         confidence=0.85,
     )
     test_db_session.add(record)
+    
+    admin = User(email="admin_db@example.com", password_hash="pw", role="admin", is_active=True)
+    test_db_session.add(admin)
     test_db_session.commit()
 
-    response = client_with_db.get("/api/v1/feedback/stats")
+    token = create_access_token(admin.id, admin.role)
+    response = client_with_db.get("/api/v1/feedback/stats", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     data = response.json()
     assert data["total_records"] >= 1

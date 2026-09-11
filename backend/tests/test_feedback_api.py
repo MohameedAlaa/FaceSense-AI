@@ -42,9 +42,25 @@ def test_submit_invalid_feedback_type_rejected(client, isolated_feedback_service
     assert response.status_code == 422
 
 
-def test_get_feedback_stats(client, isolated_feedback_service):
+from backend.app.models.user import User
+from backend.app.core.security import create_access_token
+
+def test_get_feedback_stats_unauthorized(client, isolated_feedback_service):
+    response = client.get("/api/v1/feedback/stats")
+    assert response.status_code == 401
+
+def test_get_feedback_stats_forbidden(client_with_db, test_db_session, isolated_feedback_service):
+    user = User(email="user@example.com", password_hash="pw", role="user", is_active=True)
+    test_db_session.add(user)
+    test_db_session.commit()
+    
+    token = create_access_token(user.id, user.role)
+    response = client_with_db.get("/api/v1/feedback/stats", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
+
+def test_get_feedback_stats_admin(client_with_db, test_db_session, isolated_feedback_service):
     # Post one correct, one incorrect
-    client.post(
+    client_with_db.post(
         "/api/v1/feedback",
         json={
             "feedback_type": "correct",
@@ -52,7 +68,7 @@ def test_get_feedback_stats(client, isolated_feedback_service):
             "confidence": 0.95,
         },
     )
-    client.post(
+    client_with_db.post(
         "/api/v1/feedback",
         json={
             "feedback_type": "incorrect",
@@ -62,7 +78,12 @@ def test_get_feedback_stats(client, isolated_feedback_service):
         },
     )
 
-    stats_response = client.get("/api/v1/feedback/stats")
+    admin = User(email="admin@example.com", password_hash="pw", role="admin", is_active=True)
+    test_db_session.add(admin)
+    test_db_session.commit()
+    
+    token = create_access_token(admin.id, admin.role)
+    stats_response = client_with_db.get("/api/v1/feedback/stats", headers={"Authorization": f"Bearer {token}"})
     assert stats_response.status_code == 200
     stats = stats_response.json()
     assert stats["total_records"] == 2

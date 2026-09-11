@@ -5,8 +5,8 @@ Maps to the 'feedback' table in PostgreSQL.
 
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
-from sqlalchemy import DateTime, Float, Integer, JSON, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import DateTime, Float, Integer, JSON, String, Text, func, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.db.base import Base
 
@@ -21,6 +21,7 @@ class FeedbackRecord(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     feedback_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     state: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
     predicted_emotion: Mapped[str] = mapped_column(String(30), index=True, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
@@ -37,11 +38,14 @@ class FeedbackRecord(Base):
         nullable=False,
     )
 
+    user = relationship("User", back_populates="feedback_records")
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert ORM record into dictionary representation."""
         return {
             "id": self.id,
             "feedback_id": self.feedback_id,
+            "user_id": self.user_id,
             "state": self.state,
             "predicted_emotion": self.predicted_emotion,
             "confidence": self.confidence,
