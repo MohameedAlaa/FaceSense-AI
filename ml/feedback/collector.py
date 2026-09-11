@@ -9,6 +9,7 @@ from enum import Enum
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+import uuid
 import numpy as np
 from PIL import Image
 
@@ -222,7 +223,7 @@ class FeedbackCollector:
         resolved_model_version = str(model_version) if model_version is not None else self.default_model_version
 
         record = {
-            "feedback_id": f"fb_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}",
+            "feedback_id": f"fb_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}_{uuid.uuid4().hex[:6]}",
             "state": validated["state"],
             "image_path": stored_img_path,
             "bounding_box": validated["bounding_box"],
