@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-primary: #6C63FF;
+    --color-primary-hover: #5B52EE;
+    --color-secondary: #8B5CF6;
+    --color-accent: #22D3EE;
+    
+    /* Light Mode Tokens */
+    --bg-base: #F7F7FC;
+    --bg-surface: #FFFFFF;
+    --bg-surface-elevated: #FFFFFF;
+    --bg-surface-muted: #F0F0FA;
+    --border-color: #E8E8F3;
+    --border-color-subtle: #F0F0FA;
+    --text-primary: #0F172A;
+    --text-secondary: #475569;
+    --text-muted: #94A3B8;
+  }
+
+  .dark {
+    /* Dark Mode Tokens */
+    --bg-base: #0B1020;
+    --bg-surface: #12182B;
+    --bg-surface-elevated: #171F36;
+    --bg-surface-muted: #0E1323;
+    --border-color: #1E294B;
+    --border-color-subtle: rgba(247, 247, 252, 0.08);
+    --text-primary: #F8FAFC;
+    --text-secondary: #94A3B8;
+    --text-muted: #64748B;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    transition: background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1), color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.dark ::-webkit-scrollbar-track {
+  background: #0B1020;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #1E294B;
+  border-radius: 9999px;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #2E3B66;
+}
+
+::-webkit-scrollbar-track {
+  background: #F7F7FC;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* Dot Grid Backgrounds */
+.dark .dot-grid {
+  background-image: radial-gradient(#1E294B 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+}
+
+.dot-grid {
+  background-image: radial-gradient(#CBD5E1 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+}
+
+/* Reticle brackets helper */
+.reticle-corner {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+}
