@@ -6,9 +6,13 @@ for human-in-the-loop review and continuous dataset building.
 
 from ml.feedback.collector import FeedbackCollector, FeedbackState
 from ml.feedback.dataset_builder import FeedbackDatasetBuilder
+from ml.feedback.webcam_feedback import WebcamFeedbackHandler
+from ml.feedback.image_feedback import ImageFeedbackHandler
 
 __all__ = [
     "FeedbackCollector",
     "FeedbackState",
     "FeedbackDatasetBuilder",
+    "WebcamFeedbackHandler",
+    "ImageFeedbackHandler",
 ]

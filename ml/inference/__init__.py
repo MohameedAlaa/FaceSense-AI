@@ -8,9 +8,11 @@ from ml.inference.predictor import (
     get_inference_transforms,
     load_and_preprocess_image,
 )
+from ml.inference.image_pipeline import ImageInferencePipeline
 
 __all__ = [
     "EmotionPredictor",
     "get_inference_transforms",
     "load_and_preprocess_image",
+    "ImageInferencePipeline",
 ]

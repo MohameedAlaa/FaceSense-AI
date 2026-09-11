@@ -150,6 +150,20 @@ def create_feedback_cli_parser() -> argparse.ArgumentParser:
         help="Validation split ratio (0.0 to 1.0)",
     )
 
+    # Command 6: audit
+    audit_p = subparsers.add_parser("audit", help="Audit feedback records and report training usability and exclusion reasons")
+    audit_p.add_argument(
+        "--feedback-dir",
+        type=str,
+        default="outputs/feedback",
+        help="Directory where feedback records are stored",
+    )
+    audit_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Output raw JSON instead of formatted table",
+    )
+
     return parser
 
 
@@ -226,8 +240,49 @@ def handle_build_dataset(args: argparse.Namespace) -> None:
         output_dataset_dir=args.output_dir,
         val_split_ratio=args.val_split,
     )
-    print(f"\n[FaceSense AI Feedback] Successfully built feedback dataset:")
-    print(json.dumps(manifest, indent=2))
+    print("\n" + "=" * 70)
+    print("FaceSense AI - Feedback Dataset Construction Summary")
+    print("=" * 70)
+    print(f"Total Records Evaluated : {manifest.get('total_records_evaluated', manifest['total_samples'])}")
+    print(f"Usable Samples          : {manifest.get('usable_samples', manifest['total_samples'])}")
+    print(f"Excluded Samples        : {manifest.get('excluded_samples', 0)}")
+    print(f"Exclusion Reasons       : {json.dumps(manifest.get('exclusion_reasons', {}))}")
+    print(f"Train Split Samples     : {manifest['train_samples']}")
+    print(f"Validation Samples      : {manifest['val_samples']}")
+    print("-" * 70)
+    print("Class Counts (Train)    :")
+    for emo, cnt in manifest.get("class_counts_train", {}).items():
+        print(f"  {emo:<12} : {cnt}")
+    print("Class Counts (Val)      :")
+    for emo, cnt in manifest.get("class_counts_val", {}).items():
+        print(f"  {emo:<12} : {cnt}")
+    print("=" * 70)
+    print(f"Manifest written to     : {Path(args.output_dir) / 'manifest.json'}\n")
+
+
+def handle_audit(args: argparse.Namespace) -> None:
+    builder = FeedbackDatasetBuilder(feedback_dir=args.feedback_dir)
+    audit = builder.audit_feedback_records()
+
+    if getattr(args, "json", False):
+        print(json.dumps(audit, indent=2))
+        return
+
+    print("\n" + "=" * 115)
+    print("FaceSense AI - Feedback Records Training Usability Audit")
+    print("=" * 115)
+    print(f"Total Records Evaluated : {audit['total_records']}")
+    print(f"Usable Samples          : {audit['usable_count']}")
+    print(f"Excluded Records        : {audit['excluded_count']}")
+    print(f"Exclusion Breakdown     : {json.dumps(audit['exclusion_reasons'])}")
+    print("-" * 115)
+    print(f" {'#':<3} {'Feedback ID':<28} {'State':<10} {'Predicted':<10} {'Corrected':<10} {'Usable?':<8} {'Reason'}")
+    print("-" * 115)
+    for row in audit["diagnostic_report"]:
+        inc_str = "YES" if row["included"] else "NO"
+        corr_str = row["corrected"] or "-"
+        print(f" {row['index']:<3} {row['feedback_id']:<28} {row['state']:<10} {row['predicted']:<10} {corr_str:<10} {inc_str:<8} {row['reason']}")
+    print("=" * 115 + "\n")
 
 
 def main() -> None:
@@ -249,6 +304,8 @@ def main() -> None:
             handle_export(args)
         elif args.command == "build-dataset":
             handle_build_dataset(args)
+        elif args.command == "audit":
+            handle_audit(args)
     except Exception as e:
         print(f"\n[Error] Feedback operation failed: {e}", file=sys.stderr)
         sys.exit(1)
