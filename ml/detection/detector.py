@@ -14,31 +14,73 @@ class FaceDetector:
     Lightweight Face Detector using OpenCV Haar Cascade Classifier.
     Detects single and multiple faces in RGB/BGR frames or grayscale images.
     Returns standardized bounding box tuples: (x, y, w, h).
+
+    Conservative defaults are chosen to minimise false positives from background
+    clutter (shelves, windows, objects) while preserving detection of real human
+    faces at typical webcam/upload distances:
+
+      - min_size=(80, 80):    Any face close enough to classify emotions is
+                               substantially larger than 30×30 px.  The previous
+                               default of 30×30 allowed tiny background patches to
+                               trigger the cascade (root cause of the upper-right
+                               false positive observed in webcam captures).
+
+      - min_neighbors=6:      Each candidate rectangle must have at least 6
+                               neighbouring detections rather than 5, requiring
+                               stronger consensus before a positive is kept.
+
+      - use_clahe=True:       Applies CLAHE (Contrast Limited Adaptive Histogram
+                               Equalisation) to the grayscale frame before running
+                               the cascade.  This normalises uneven lighting from
+                               bright windows or overhead lights — a common source
+                               of background Haar-feature matches — while keeping
+                               the true face signal strong.
     """
 
     def __init__(
         self,
         cascade_path: Optional[Union[str, Path]] = None,
         scale_factor: float = 1.1,
-        min_neighbors: int = 5,
-        min_size: Tuple[int, int] = (30, 30),
+        min_neighbors: int = 6,
+        min_size: Tuple[int, int] = (80, 80),
+        max_size: Tuple[int, int] = (),
+        use_clahe: bool = True,
     ):
         """
         Args:
-            cascade_path: Path to Haar Cascade XML file. If None, uses default OpenCV frontal face cascade.
-            scale_factor: Parameter specifying how much the image size is reduced at each image scale.
-            min_neighbors: Parameter specifying how many neighbors each candidate rectangle should have to retain it.
-            min_size: Minimum possible object size. Objects smaller than that are ignored.
+            cascade_path:  Path to Haar Cascade XML file.  If None, the local
+                           repository cascade is used, falling back to the OpenCV
+                           bundled cascade.
+            scale_factor:  Image pyramid reduction factor per scale step.
+            min_neighbors: Minimum number of overlapping detection windows a
+                           candidate must accumulate before being kept as a face.
+                           Higher values reduce false positives at the cost of
+                           slightly lower recall on very small or partial faces.
+            min_size:      Minimum bounding-box dimensions (pixels).  Objects
+                           smaller than this are ignored.  Default (80, 80) removes
+                           tiny background false positives that cannot possibly
+                           be a detectable human face at usable resolution.
+            max_size:      Maximum bounding-box dimensions (pixels).  Empty tuple
+                           means no upper limit (default).
+            use_clahe:     If True (default), applies CLAHE to the grayscale image
+                           before cascade detection.  Normalises local contrast to
+                           reduce spurious matches from high-contrast backgrounds.
         """
         self.scale_factor = float(scale_factor)
         self.min_neighbors = int(min_neighbors)
         self.min_size = tuple(min_size)
+        self.max_size = tuple(max_size)
+        self.use_clahe = bool(use_clahe)
 
         if cascade_path is None:
             # Check local repository cascade directory first
             local_path = Path(__file__).resolve().parent / "cascades" / "haarcascade_frontalface_default.xml"
-            cv2_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml" if hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades") else None
-            
+            cv2_path = (
+                Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
+                if hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades")
+                else None
+            )
+
             if local_path.exists():
                 self.cascade_path = local_path
             elif cv2_path and cv2_path.exists():
@@ -56,6 +98,41 @@ class FaceDetector:
         if self.face_cascade.empty():
             raise RuntimeError(f"Failed to load Haar Cascade from '{self.cascade_path}'.")
 
+        # Pre-allocate CLAHE processor (reuse across frames for efficiency)
+        self._clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+
+    def _preprocess(self, frame: np.ndarray) -> np.ndarray:
+        """
+        Convert frame to grayscale and optionally apply CLAHE.
+
+        Grayscale conversion follows OpenCV channel conventions:
+          3-channel → BGR→GRAY, 4-channel → BGRA→GRAY, 2-D → already gray.
+
+        CLAHE (Contrast Limited Adaptive Histogram Equalisation) subdivides the
+        image into small tiles, equalises each independently, and blends them via
+        bilinear interpolation.  This suppresses the effect of bright background
+        regions (windows, lights) that would otherwise generate high-gradient edge
+        patterns matching early Haar cascade stages for a face.
+        """
+        # Convert to grayscale
+        if frame.ndim == 3:
+            if frame.shape[2] == 3:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            elif frame.shape[2] == 4:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY)
+            else:
+                gray = frame[:, :, 0]
+        elif frame.ndim == 2:
+            gray = frame
+        else:
+            return None  # type: ignore[return-value]
+
+        # Optionally apply CLAHE for contrast normalisation
+        if self.use_clahe:
+            gray = self._clahe.apply(gray)
+
+        return gray
+
     def detect_faces(self, frame: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """
         Detects faces in a BGR, RGB, or grayscale image array.
@@ -70,27 +147,21 @@ class FaceDetector:
         if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
             return []
 
-        # Convert to grayscale for detection if frame has color channels
-        if frame.ndim == 3:
-            if frame.shape[2] == 3:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            elif frame.shape[2] == 4:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY)
-            else:
-                gray = frame[:, :, 0]
-        elif frame.ndim == 2:
-            gray = frame
-        else:
+        gray = self._preprocess(frame)
+        if gray is None:
             return []
 
-        # Equalize histogram or use directly for robust detection
-        faces = self.face_cascade.detectMultiScale(
-            gray,
+        # Build kwargs for detectMultiScale; only pass maxSize when set
+        kwargs = dict(
             scaleFactor=self.scale_factor,
             minNeighbors=self.min_neighbors,
             minSize=self.min_size,
             flags=cv2.CASCADE_SCALE_IMAGE,
         )
+        if self.max_size:
+            kwargs["maxSize"] = self.max_size
+
+        faces = self.face_cascade.detectMultiScale(gray, **kwargs)
 
         if len(faces) == 0:
             return []

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ImageViewer from '../components/analyze/ImageViewer';
 import UploadArea from '../components/analyze/UploadArea';
+import CameraCapture from '../components/analyze/CameraCapture';
 import ResultCard from '../components/analyze/ResultCard';
 import FeedbackPanel from '../components/analyze/FeedbackPanel';
 import Modal from '../components/common/Modal';
@@ -155,54 +156,21 @@ export default function AnalyzePage() {
     setAnalysisState('IMAGE_SELECTED');
   };
 
-  const handleUseSample = async () => {
-    try {
-      setAnalysisState('ANALYZING');
-      setLoadingStage('Loading sample image...');
-      const res = await fetch('/sample_face.jpg');
-      const blob = await res.blob();
-      const file = new File([blob], 'sample_face.jpg', { type: 'image/jpeg' });
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        setImage({
-          file,
-          src: event.target.result,
-          name: 'sample_face.jpg',
-          specs: `${(file.size / 1024).toFixed(1)} KB • Sample face image`,
-        });
-        setCurrentFile(file);
-        await executePrediction(file);
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      setAnalysisState('ERROR');
-      setErrorMessage(err.message || 'Vision pipeline inference failed.');
-    }
-  };
-
-  const handleUseMultiSample = async () => {
-    try {
-      setAnalysisState('ANALYZING');
-      setLoadingStage('Loading multi-face sample...');
-      const res = await fetch('/multi_face_sample.jpg');
-      const blob = await res.blob();
-      const file = new File([blob], 'multi_face_sample.jpg', { type: 'image/jpeg' });
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        setImage({
-          file,
-          src: event.target.result,
-          name: 'multi_face_sample.jpg',
-          specs: `${(file.size / 1024).toFixed(1)} KB • Multi-face sample image`,
-        });
-        setCurrentFile(file);
-        await executePrediction(file);
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      setAnalysisState('ERROR');
-      setErrorMessage(err.message || 'Vision pipeline inference failed.');
-    }
+  const handleCameraCapture = async (file, dataUrl) => {
+    setImage({
+      file,
+      src: dataUrl,
+      name: file.name,
+      specs: `${(file.size / 1024).toFixed(1)} KB • Camera capture`,
+    });
+    setCurrentFile(file);
+    setFaces([]);
+    setSelectedFaceId(null);
+    setFaceFeedback({});
+    setSubmittingFaceId(null);
+    setRawResponse(null);
+    setErrorMessage(null);
+    await executePrediction(file);
   };
 
   const handleResetToEmpty = () => {
@@ -278,7 +246,7 @@ export default function AnalyzePage() {
   // SHARED SUB-RENDERERS
   // ==========================================
 
-  const renderControlBar = (isMobile = false) => {
+  const renderControlBar = (_isMobile = false) => {
     if (!image && analysisState === 'EMPTY') return null;
 
     return (
@@ -419,13 +387,22 @@ export default function AnalyzePage() {
   };
 
   const renderCanvas = () => {
+    if (analysisState === 'CAMERA') {
+      return (
+        <CameraCapture
+          onCapture={handleCameraCapture}
+          onCancel={() => setAnalysisState('EMPTY')}
+          onError={(msg) => setToastMessage(msg)}
+        />
+      );
+    }
+
     if (analysisState === 'EMPTY') {
       return (
         <div className="flex-1 flex items-center justify-center p-4 sm:p-8 bg-slate-50 dark:bg-[#090D1A] border border-slate-200 dark:border-[#1E294B] rounded-2xl w-full max-w-full">
           <UploadArea
             onImageSelect={handleImageSelect}
-            onUseSample={handleUseSample}
-            onUseMultiSample={handleUseMultiSample}
+            onStartCamera={() => setAnalysisState('CAMERA')}
           />
         </div>
       );
