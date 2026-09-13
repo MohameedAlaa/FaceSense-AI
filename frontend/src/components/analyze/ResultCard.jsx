@@ -5,6 +5,7 @@ export default function ResultCard({
   face,
   isSelected,
   onSelect,
+  feedbackState,
 }) {
   if (!face) return null;
 
@@ -28,24 +29,32 @@ export default function ResultCard({
       }`}
     >
       {/* Card Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-white dark:bg-[#0B1020] border border-[#6C63FF] flex items-center justify-center text-[#6C63FF] font-mono text-xs font-bold">
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-white dark:bg-[#0B1020] border border-[#6C63FF] flex items-center justify-center text-[#6C63FF] font-mono text-xs font-bold shrink-0">
             {id}
           </div>
-          <div className="flex flex-col text-left">
-            <span className="text-xs font-semibold text-slate-800 dark:text-[#F8FAFC]">
-              {label} <span className="text-[10px] text-[#6C63FF] dark:text-[#8B5CF6] font-normal">({sublabel})</span>
+          <div className="flex flex-col text-left min-w-0">
+            <span className="text-xs font-semibold text-slate-800 dark:text-[#F8FAFC] truncate">
+              {label} {sublabel ? <span className="text-[10px] text-[#6C63FF] dark:text-[#8B5CF6] font-normal">({sublabel})</span> : null}
             </span>
-            <span className="text-[11px] text-slate-400 dark:text-[#64748B] font-mono">
-              Box: [{box.left}%, {box.top}%, {box.width}%, {box.height}%]
+            <span className="text-[11px] text-slate-400 dark:text-[#64748B] font-mono truncate">
+              Box: [{Number(box?.left || 0).toFixed(1)}%, {Number(box?.top || 0).toFixed(1)}%, {Number(box?.width || 0).toFixed(1)}%, {Number(box?.height || 0).toFixed(1)}%]
             </span>
           </div>
         </div>
 
-        <span className="px-2 py-0.5 rounded bg-white dark:bg-[#0B1020] border border-[#22D3EE]/40 text-[#0891B2] dark:text-[#22D3EE] text-[11px] font-mono font-semibold">
-          {(confidence * 100).toFixed(1)}%
-        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {feedbackState?.status === 'submitted' && (
+            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-medium">
+              <span className="material-symbols-outlined text-[12px]">check_circle</span>
+              <span>{feedbackState.feedback_type === 'incorrect' ? feedbackState.corrected_emotion : feedbackState.feedback_type}</span>
+            </span>
+          )}
+          <span className="px-2 py-0.5 rounded bg-white dark:bg-[#0B1020] border border-[#22D3EE]/40 text-[#0891B2] dark:text-[#22D3EE] text-[11px] font-mono font-semibold">
+            {(confidence * 100).toFixed(1)}%
+          </span>
+        </div>
       </div>
 
       {/* Expression Class Distribution (7 Supported Classes) */}

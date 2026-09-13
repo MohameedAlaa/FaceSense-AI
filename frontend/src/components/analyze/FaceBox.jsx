@@ -15,7 +15,7 @@ export default function FaceBox({
   if (!showBoxes) return null;
 
   const { box, id, predicted_emotion, confidence } = face;
-  const isCyan = isSelected || id === "01";
+  const isCyan = Boolean(isSelected);
 
   const emotionIcons = {
     happy: "sentiment_very_satisfied",

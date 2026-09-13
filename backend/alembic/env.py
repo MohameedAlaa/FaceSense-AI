@@ -25,6 +25,15 @@ target_metadata = Base.metadata
 
 # Override sqlalchemy.url with runtime settings if available
 db_url = settings.DATABASE_URL or os.getenv("DATABASE_URL")
+if not db_url:
+    env_file = BASE_DIR / ".env"
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("DATABASE_URL="):
+                db_url = line.split("=", 1)[1].strip().strip('"').strip("'")
+                break
+
 if db_url:
     config.set_main_option("sqlalchemy.url", db_url)
 

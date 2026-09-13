@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Input from '../components/common/Input';
 import ThemeSwitcher from '../components/layout/ThemeSwitcher';
 import Toast from '../components/common/Toast';
+import { useAuth } from '../hooks/useAuth';
 
 export default function SettingsPage() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('appearance');
   const [toastMessage, setToastMessage] = useState(null);
 
@@ -15,6 +19,11 @@ export default function SettingsPage() {
     { id: 'privacy', label: 'Privacy & Security', icon: 'security' },
     { id: 'notifications', label: 'Notifications', icon: 'notifications' },
   ];
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 flex flex-col gap-6 max-w-5xl mx-auto text-left">
@@ -84,19 +93,54 @@ export default function SettingsPage() {
               Operator Profile
             </h3>
             <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
-              Identity used for human-in-the-loop verified feedback records.
+              Active credentials validated through FastAPI OAuth2 /auth/me.
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input label="Full Name" defaultValue="Elena Rostova" />
-            <Input label="Role Title" defaultValue="Product Lead · Systems Lab" />
-            <Input label="Email Address" defaultValue="elena.rostova@facesense.internal" type="email" />
-            <Input label="Department" defaultValue="Vision Telemetry Core" />
+            <div>
+              <label className="text-xs font-medium text-slate-700 dark:text-[#94A3B8] block mb-1">
+                Authenticated Email
+              </label>
+              <div className="p-2.5 rounded-lg bg-slate-100 dark:bg-[#171F36] border border-slate-200 dark:border-[#1E294B] font-mono text-xs text-slate-800 dark:text-[#F8FAFC]">
+                {user?.email || 'operator@facesense.internal'}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-700 dark:text-[#94A3B8] block mb-1">
+                System Role
+              </label>
+              <div className="p-2.5 rounded-lg bg-slate-100 dark:bg-[#171F36] border border-slate-200 dark:border-[#1E294B] font-mono text-xs text-slate-800 dark:text-[#F8FAFC] capitalize">
+                {user?.role || 'user'}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-700 dark:text-[#94A3B8] block mb-1">
+                Account ID
+              </label>
+              <div className="p-2.5 rounded-lg bg-slate-100 dark:bg-[#171F36] border border-slate-200 dark:border-[#1E294B] font-mono text-xs text-slate-800 dark:text-[#F8FAFC]">
+                #{user?.id || 1}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-700 dark:text-[#94A3B8] block mb-1">
+                Security Status
+              </label>
+              <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-mono text-xs flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[14px]">verified_user</span>
+                <span>Active Bearer Token</span>
+              </div>
+            </div>
           </div>
 
-          <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-[#1E294B]">
-            <Button variant="primary" size="sm" onClick={() => setToastMessage('Profile settings saved')}>
+          <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-[#1E294B]">
+            <Button variant="danger" size="sm" icon="logout" onClick={handleLogout}>
+              Sign Out
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setToastMessage('Preferences updated')}>
               Save Profile
             </Button>
           </div>
@@ -122,7 +166,7 @@ export default function SettingsPage() {
                   Anonymous Feedback Logging
                 </span>
                 <span className="text-[11px] text-slate-400">
-                  Strip all personal identifying headers when storing feedback records.
+                  Associate feedback with user ID without storing raw camera media.
                 </span>
               </div>
               <input type="checkbox" defaultChecked className="accent-[#6C63FF] w-4 h-4 rounded" />
@@ -134,7 +178,7 @@ export default function SettingsPage() {
                   Face Crop Obfuscation
                 </span>
                 <span className="text-[11px] text-slate-400">
-                  Only store normalized 48×48 grayscale patches for model evaluation.
+                  Only process normalized 48×48 grayscale patches for inference.
                 </span>
               </div>
               <input type="checkbox" defaultChecked className="accent-[#6C63FF] w-4 h-4 rounded" />

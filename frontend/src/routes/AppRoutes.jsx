@@ -1,6 +1,7 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import AppShell from '../components/layout/AppShell';
+import { useAuth } from '../hooks/useAuth';
 
 // Pages
 import LandingPage from '../pages/LandingPage';
@@ -13,61 +14,179 @@ import InsightsPage from '../pages/InsightsPage';
 import SettingsPage from '../pages/SettingsPage';
 import AdminPage from '../pages/AdminPage';
 
+/**
+ * Route guard requiring active user authentication.
+ */
+function ProtectedRoute({ children }) {
+  const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#F7F7FC] dark:bg-[#0B1020] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-2 border-[#6C63FF]/30 border-t-[#6C63FF] rounded-full animate-spin"></div>
+          <span className="text-xs font-mono text-slate-500 dark:text-[#94A3B8]">
+            Validating security session...
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  return children;
+}
+
+/**
+ * Route guard strictly enforcing admin authorization.
+ */
+function AdminRoute({ children }) {
+  const { isAuthenticated, isAdmin, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#F7F7FC] dark:bg-[#0B1020] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#6C63FF]/30 border-t-[#6C63FF] rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (!isAdmin) {
+    return (
+      <AppShell>
+        <div className="p-8 max-w-xl mx-auto my-12 text-center flex flex-col items-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-500">
+            <span className="material-symbols-outlined text-[32px]">gpp_bad</span>
+          </div>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-[#F8FAFC]">
+            Administrative Access Restricted
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-[#94A3B8] leading-relaxed">
+            Your authenticated account does not have administrative privileges. Model administration, fine-tuning checkpoints, and aggregate feedback telemetry require an authorized operator role.
+          </p>
+          <a
+            href="/dashboard"
+            className="px-4 py-2 rounded-lg bg-[#6C63FF] text-white text-xs font-medium hover:bg-[#5B52EE] transition-colors"
+          >
+            Return to Dashboard
+          </a>
+        </div>
+      </AppShell>
+    );
+  }
+
+  return children;
+}
+
+/**
+ * Redirects already authenticated users away from auth pages (/login, /register).
+ */
+function PublicOnlyRoute({ children }) {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return null;
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
+}
+
 export default function AppRoutes() {
   return (
     <Routes>
       {/* Public Pages */}
       <Route path="/" element={<LandingPage />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
+      <Route
+        path="/login"
+        element={
+          <PublicOnlyRoute>
+            <LoginPage />
+          </PublicOnlyRoute>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <PublicOnlyRoute>
+            <RegisterPage />
+          </PublicOnlyRoute>
+        }
+      />
 
-      {/* Workspace Pages (Wrapped in AppShell) */}
+      {/* Authenticated Workspace Pages */}
       <Route
         path="/dashboard"
         element={
-          <AppShell>
-            <DashboardPage />
-          </AppShell>
+          <ProtectedRoute>
+            <AppShell>
+              <DashboardPage />
+            </AppShell>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/analyze"
         element={
-          <AppShell>
-            <AnalyzePage />
-          </AppShell>
+          <ProtectedRoute>
+            <AppShell>
+              <AnalyzePage />
+            </AppShell>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/history"
         element={
-          <AppShell>
-            <HistoryPage />
-          </AppShell>
+          <ProtectedRoute>
+            <AppShell>
+              <HistoryPage />
+            </AppShell>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/insights"
         element={
-          <AppShell>
-            <InsightsPage />
-          </AppShell>
+          <ProtectedRoute>
+            <AppShell>
+              <InsightsPage />
+            </AppShell>
+          </ProtectedRoute>
         }
       />
       <Route
         path="/settings"
         element={
-          <AppShell>
-            <SettingsPage />
-          </AppShell>
+          <ProtectedRoute>
+            <AppShell>
+              <SettingsPage />
+            </AppShell>
+          </ProtectedRoute>
         }
       />
+
+      {/* Admin Route */}
       <Route
         path="/admin"
         element={
-          <AppShell>
-            <AdminPage />
-          </AppShell>
+          <AdminRoute>
+            <AppShell>
+              <AdminPage />
+            </AppShell>
+          </AdminRoute>
         }
       />
 

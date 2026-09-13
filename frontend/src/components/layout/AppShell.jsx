@@ -7,7 +7,7 @@ export default function AppShell({ children }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-row bg-[#F7F7FC] dark:bg-[#0B1020] text-slate-900 dark:text-[#F8FAFC] antialiased">
+    <div className="h-screen w-full max-w-full overflow-hidden flex flex-row bg-[#F7F7FC] dark:bg-[#0B1020] text-slate-900 dark:text-[#F8FAFC] antialiased">
       {/* Desktop Persistent Sidebar */}
       <div className="hidden lg:block h-full shrink-0">
         <Sidebar />
@@ -32,7 +32,7 @@ export default function AppShell({ children }) {
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <TopBar onToggleMobileNav={() => setMobileNavOpen((prev) => !prev)} />
         
-        <main className="flex-1 overflow-y-auto pb-16 lg:pb-0 bg-[#F7F7FC] dark:bg-[#0B1020] transition-colors">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden pb-16 lg:pb-0 bg-[#F7F7FC] dark:bg-[#0B1020] transition-colors min-w-0 max-w-full">
           {children}
         </main>
       </div>

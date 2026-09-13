@@ -210,15 +210,40 @@ class TestFeedbackDatasetAudit(unittest.TestCase):
         self.assertEqual(len(manifest["excluded_records_detail"]), 1)
 
     def test_live_dataset_audit_consistency(self):
-        """Verify audit against current live feedback log matches exact 19 / 11 / 8 breakdown."""
+        """Verify audit consistency and structural integrity against current live feedback log."""
         live_builder = FeedbackDatasetBuilder(feedback_dir="outputs/feedback")
+        raw_records = live_builder.collector.load_feedback_records()
         audit = live_builder.audit_feedback_records()
 
-        self.assertEqual(audit["total_records"], 19)
-        self.assertEqual(audit["usable_count"], 11)
-        self.assertEqual(audit["excluded_count"], 8)
-        self.assertEqual(audit["exclusion_reasons"].get("missing_image_file"), 6)
-        self.assertEqual(audit["exclusion_reasons"].get("uncertain_without_correction"), 2)
+        # 1. Total records must dynamically match the actual live feedback source
+        self.assertGreater(len(raw_records), 0, "Live feedback log should contain recorded samples")
+        self.assertEqual(audit["total_records"], len(raw_records))
+
+        # 2. Partition consistency: usable + excluded must exactly equal total records evaluated
+        self.assertEqual(audit["total_records"], audit["usable_count"] + audit["excluded_count"])
+        self.assertEqual(len(audit["usable_samples"]), audit["usable_count"])
+        self.assertEqual(len(audit["excluded_records"]), audit["excluded_count"])
+
+        # 3. Exclusion reasons must account for every excluded record
+        total_exclusion_reasons = sum(audit["exclusion_reasons"].values())
+        self.assertEqual(audit["excluded_count"], total_exclusion_reasons)
+
+        # 4. Semantic integrity of all usable samples
+        for sample in audit["usable_samples"]:
+            self.assertIn("feedback_id", sample)
+            self.assertIn(sample["label"], live_builder.valid_emotions)
+            self.assertTrue(Path(sample["image_path"]).exists(), f"Image path {sample['image_path']} must exist for usable sample")
+
+        # 5. Semantic integrity of all excluded records
+        for excluded in audit["excluded_records"]:
+            self.assertIn("feedback_id", excluded)
+            self.assertIn("reason", excluded)
+            self.assertIn(excluded["reason"], audit["exclusion_reasons"])
+
+        # 6. Verify that historical baseline records are accounted for
+        self.assertGreaterEqual(audit["usable_count"], 11, "Must contain at least the 11 baseline usable samples")
+        self.assertEqual(audit["exclusion_reasons"].get("missing_image_file"), 6, "Expected 6 legacy samples with missing images")
+        self.assertGreaterEqual(audit["exclusion_reasons"].get("uncertain_without_correction", 0), 2, "Expected at least 2 uncertain exclusions")
 
 
 if __name__ == "__main__":

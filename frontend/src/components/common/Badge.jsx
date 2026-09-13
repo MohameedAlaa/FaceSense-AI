@@ -21,10 +21,10 @@ export default function Badge({
 
   return (
     <span
-      className={`inline-flex items-center gap-1 font-mono text-[10px] font-medium px-2 py-0.5 rounded ${variantClasses[variant] || variantClasses.default} ${className}`}
+      className={`inline-flex items-center gap-1 font-mono text-[10px] font-medium px-2 py-0.5 rounded max-w-full truncate ${variantClasses[variant] || variantClasses.default} ${className}`}
     >
-      {icon && <span className="material-symbols-outlined text-[12px]">{icon}</span>}
-      {children}
+      {icon && <span className="material-symbols-outlined text-[12px] shrink-0">{icon}</span>}
+      <span className="truncate">{children}</span>
     </span>
   );
 }

@@ -20,7 +20,7 @@ export default function Card({
   return (
     <div
       onClick={onClick}
-      className={`rounded-xl p-4 transition-all duration-150 ${elevationMap[elevation] || elevationMap.container} ${className}`}
+      className={`rounded-xl p-4 transition-all duration-150 min-w-0 max-w-full ${elevationMap[elevation] || elevationMap.container} ${className}`}
       {...props}
     >
       {children}
