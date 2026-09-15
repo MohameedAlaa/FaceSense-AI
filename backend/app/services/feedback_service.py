@@ -58,6 +58,8 @@ class FeedbackService:
         metadata["source"] = "api_v1"
         if user_id is not None:
             metadata["user_id"] = user_id
+        if request.face_index is not None:
+            metadata["face_index"] = request.face_index
 
         state_val = request.feedback_type.lower()
         if state_val == "correct":
@@ -80,19 +82,28 @@ class FeedbackService:
             crop_img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             if crop_img is None or crop_img.size == 0:
                 raise ValueError("Failed to decode base64 image data into valid image: corrupted or invalid image format")
-        else:
-            # Create a 48x48 neutral placeholder if no image was provided
-            crop_img = np.zeros((48, 48, 3), dtype=np.uint8)
 
-        # 1. Primary storage: JSONL via FeedbackCollector
-        record = self.collector.save_face_crop_and_add_feedback(
-            frame_or_face=crop_img,
-            predicted_emotion=request.predicted_emotion,
-            confidence=request.confidence,
-            corrected_emotion=request.corrected_emotion,
-            state=fb_state,
-            metadata=metadata,
-        )
+            # 1. Primary storage: JSONL via FeedbackCollector with real face crop
+            record = self.collector.save_face_crop_and_add_feedback(
+                frame_or_face=crop_img,
+                predicted_emotion=request.predicted_emotion,
+                confidence=request.confidence,
+                corrected_emotion=request.corrected_emotion,
+                bounding_box=request.bounding_box,
+                state=fb_state,
+                metadata=metadata,
+            )
+        else:
+            # If no real source image is provided, do NOT fabricate an image. Store image_path = None.
+            record = self.collector.add_feedback(
+                image_path=None,
+                predicted_emotion=request.predicted_emotion,
+                confidence=request.confidence,
+                corrected_emotion=request.corrected_emotion,
+                bounding_box=request.bounding_box,
+                state=fb_state,
+                metadata=metadata,
+            )
         record_id = record["feedback_id"]
 
         # 2. Secondary storage: PostgreSQL database (additive, resilient)
@@ -240,4 +251,207 @@ class FeedbackService:
         return all_records[offset : offset + limit]
 
 
+    def get_review_overview(self, db: Optional[Session] = None) -> Dict[str, Any]:
+        """
+        Retrieves review status counts (pending, approved, rejected, total) grouped
+        across all 7 FER2013 emotion categories.
+        """
+        emotions = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
+        overview: Dict[str, Dict[str, int]] = {
+            emo: {"pending": 0, "approved": 0, "rejected": 0, "total": 0}
+            for emo in emotions
+        }
+        total_records = 0
+
+        if db is not None:
+            try:
+                stmt = (
+                    select(
+                        FeedbackRecord.predicted_emotion,
+                        FeedbackRecord.review_status,
+                        func.count(FeedbackRecord.id),
+                    )
+                    .group_by(FeedbackRecord.predicted_emotion, FeedbackRecord.review_status)
+                )
+                rows = db.execute(stmt).all()
+                for emo, status_val, count in rows:
+                    emo_clean = str(emo).lower()
+                    st_clean = str(status_val).lower()
+                    if emo_clean in overview:
+                        if st_clean in overview[emo_clean]:
+                            overview[emo_clean][st_clean] = count
+                        overview[emo_clean]["total"] += count
+                    total_records += count
+
+                return {
+                    "emotions": overview,
+                    "total_records": total_records,
+                }
+            except Exception as e:
+                logger.warning("Database review overview query failed, falling back to JSONL: %s", e)
+
+        # JSONL Fallback
+        all_records = self.collector.load_feedback_records()
+        for r in all_records:
+            total_records += 1
+            pred = str(r.get("predicted_emotion", "")).lower()
+            rev_st = str(r.get("review_status", "pending")).lower()
+            if pred in overview:
+                if rev_st in overview[pred]:
+                    overview[pred][rev_st] += 1
+                overview[pred]["total"] += 1
+
+        return {
+            "emotions": overview,
+            "total_records": total_records,
+        }
+
+    def list_review_feedback(
+        self,
+        emotion: str,
+        status_filter: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+        db: Optional[Session] = None,
+    ) -> Dict[str, Any]:
+        """
+        Lists feedback records for a specific emotion, optionally filtered by review_status.
+        """
+        emo_clean = emotion.strip().lower()
+        st_clean = status_filter.strip().lower() if status_filter else None
+
+        if db is not None:
+            try:
+                query = select(FeedbackRecord).where(func.lower(FeedbackRecord.predicted_emotion) == emo_clean)
+                if st_clean and st_clean != "all":
+                    query = query.where(func.lower(FeedbackRecord.review_status) == st_clean)
+
+                total_stmt = select(func.count()).select_from(query.subquery())
+                total = db.scalar(total_stmt) or 0
+
+                records = db.scalars(
+                    query.order_by(FeedbackRecord.id.desc()).limit(limit).offset(offset)
+                ).all()
+
+                items = [r.to_dict() for r in records]
+                return {
+                    "emotion": emo_clean,
+                    "status_filter": st_clean,
+                    "total": total,
+                    "items": items,
+                }
+            except Exception as e:
+                logger.warning("Database review listing failed, falling back to JSONL: %s", e)
+
+        # JSONL Fallback
+        all_records = self.collector.load_feedback_records()
+        matched = []
+        for r in all_records:
+            if str(r.get("predicted_emotion", "")).lower() == emo_clean:
+                rec_st = str(r.get("review_status", "pending")).lower()
+                if not st_clean or st_clean == "all" or rec_st == st_clean:
+                    rec_copy = dict(r)
+                    if "review_status" not in rec_copy:
+                        rec_copy["review_status"] = "pending"
+                    matched.append(rec_copy)
+
+        total = len(matched)
+        sliced = matched[offset : offset + limit]
+        return {
+            "emotion": emo_clean,
+            "status_filter": st_clean,
+            "total": total,
+            "items": sliced,
+        }
+
+    def update_review_decision(
+        self,
+        feedback_id: str,
+        decision: str,
+        final_label: Optional[str] = None,
+        reviewer_id: Optional[int] = None,
+        db: Optional[Session] = None,
+    ) -> Dict[str, Any]:
+        """
+        Updates review_status (approved | rejected) and final_label authoritative decision.
+        """
+        from datetime import datetime, timezone
+        import json
+
+        decision_clean = decision.strip().lower()
+        target_status = "approved" if decision_clean == "approve" else "rejected"
+        reviewed_at = datetime.now(timezone.utc)
+        resolved_label: Optional[str] = None
+
+        if target_status == "approved":
+            if final_label:
+                resolved_label = final_label.strip().lower()
+            else:
+                # Default: corrected_emotion if given, else predicted_emotion
+                record_dict = self.get_by_feedback_id(feedback_id, db=db)
+                if record_dict:
+                    corr = record_dict.get("corrected_emotion")
+                    pred = record_dict.get("predicted_emotion")
+                    resolved_label = (corr or pred or "neutral").strip().lower()
+                else:
+                    resolved_label = "neutral"
+
+        # 1. Update DB if available
+        db_updated = False
+        if db is not None:
+            try:
+                stmt = select(FeedbackRecord).where(FeedbackRecord.feedback_id == feedback_id)
+                db_record = db.scalar(stmt)
+                if db_record is not None:
+                    db_record.review_status = target_status
+                    db_record.final_label = resolved_label
+                    db_record.reviewed_at = reviewed_at
+                    db_record.reviewed_by_id = reviewer_id
+                    db.commit()
+                    db.refresh(db_record)
+                    db_updated = True
+            except Exception as e:
+                db.rollback()
+                logger.warning("Database review decision update failed, continuing with JSONL: %s", e)
+
+        # 2. Update JSONL store for redundancy
+        try:
+            log_path = self.collector.log_path
+            if log_path.exists():
+                lines = []
+                found = False
+                with open(log_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line_str = line.strip()
+                        if not line_str:
+                            continue
+                        try:
+                            item = json.loads(line_str)
+                            if item.get("feedback_id") == feedback_id:
+                                item["review_status"] = target_status
+                                item["final_label"] = resolved_label
+                                item["reviewed_at"] = reviewed_at.isoformat()
+                                item["reviewed_by_id"] = reviewer_id
+                                found = True
+                            lines.append(json.dumps(item, ensure_ascii=False))
+                        except Exception:
+                            lines.append(line_str)
+                if found:
+                    with open(log_path, "w", encoding="utf-8") as f:
+                        for l in lines:
+                            f.write(l + "\n")
+        except Exception as e:
+            logger.warning("Failed to update JSONL file with review decision: %s", e)
+
+        return {
+            "status": "success",
+            "feedback_id": feedback_id,
+            "review_status": target_status,
+            "final_label": resolved_label,
+            "message": f"Feedback record successfully marked as {target_status}.",
+        }
+
+
 feedback_service = FeedbackService()
+
+

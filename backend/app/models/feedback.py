@@ -31,6 +31,12 @@ class FeedbackRecord(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     model_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     extra_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column("metadata", JSON, nullable=True)
+    # Review / Human-in-the-loop fields
+    review_status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending", index=True, nullable=False)
+    final_label: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -38,7 +44,8 @@ class FeedbackRecord(Base):
         nullable=False,
     )
 
-    user = relationship("User", back_populates="feedback_records")
+    user = relationship("User", back_populates="feedback_records", foreign_keys=[user_id])
+    reviewer = relationship("User", foreign_keys=[reviewed_by_id])
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert ORM record into dictionary representation."""
@@ -55,5 +62,9 @@ class FeedbackRecord(Base):
             "notes": self.notes,
             "model_version": self.model_version,
             "metadata": self.extra_metadata,
+            "review_status": self.review_status,
+            "final_label": self.final_label,
+            "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
+            "reviewed_by_id": self.reviewed_by_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

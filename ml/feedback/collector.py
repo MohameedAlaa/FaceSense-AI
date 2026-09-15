@@ -78,7 +78,7 @@ class FeedbackCollector:
 
     def validate_record(
         self,
-        image_path: Union[str, Path],
+        image_path: Optional[Union[str, Path]],
         predicted_emotion: str,
         confidence: float,
         corrected_emotion: Optional[str] = None,
@@ -90,13 +90,16 @@ class FeedbackCollector:
         Validates all constraints on feedback components before persistence.
 
         Raises:
-            FileNotFoundError: If image_path does not exist on disk.
+            FileNotFoundError: If image_path is provided but does not exist on disk.
             ValueError: For invalid emotions, invalid confidence range, invalid bounding box, or invalid timestamp.
         """
         # 1. Image path validation
-        img_p = Path(image_path)
-        if not img_p.exists() or not img_p.is_file():
-            raise FileNotFoundError(f"Feedback image path does not exist: {img_p.resolve()}")
+        stored_img_path: Optional[str] = None
+        if image_path is not None:
+            img_p = Path(image_path)
+            if not img_p.exists() or not img_p.is_file():
+                raise FileNotFoundError(f"Feedback image path does not exist: {img_p.resolve()}")
+            stored_img_path = str(img_p.resolve())
 
         # 2. Predicted emotion validation
         pred_clean = str(predicted_emotion).strip().lower()
@@ -160,7 +163,7 @@ class FeedbackCollector:
             ts_val = datetime.now(timezone.utc).isoformat()
 
         return {
-            "image_path": str(img_p.resolve()),
+            "image_path": stored_img_path,
             "predicted_emotion": pred_clean,
             "confidence": conf_val,
             "corrected_emotion": corr_clean,
@@ -171,7 +174,7 @@ class FeedbackCollector:
 
     def add_feedback(
         self,
-        image_path: Union[str, Path],
+        image_path: Optional[Union[str, Path]],
         predicted_emotion: str,
         confidence: float,
         corrected_emotion: Optional[str] = None,
@@ -186,7 +189,7 @@ class FeedbackCollector:
         Validates, records, and persists a single feedback entry.
 
         Args:
-            image_path: Path to the image file.
+            image_path: Path to the image file (optional).
             predicted_emotion: Label predicted by model.
             confidence: Float confidence score in [0.0, 1.0].
             corrected_emotion: User ground-truth corrected label.
@@ -210,15 +213,18 @@ class FeedbackCollector:
             state=state,
         )
 
-        resolved_img = Path(validated["image_path"])
-        if copy_image:
-            img_filename = f"fb_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}_{resolved_img.name}"
-            dest_path = self.images_dir / img_filename
-            import shutil
-            shutil.copy2(resolved_img, dest_path)
-            stored_img_path = str(dest_path.resolve())
+        if validated["image_path"] is not None:
+            resolved_img = Path(validated["image_path"])
+            if copy_image:
+                img_filename = f"fb_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}_{resolved_img.name}"
+                dest_path = self.images_dir / img_filename
+                import shutil
+                shutil.copy2(resolved_img, dest_path)
+                stored_img_path = str(dest_path.resolve())
+            else:
+                stored_img_path = validated["image_path"]
         else:
-            stored_img_path = validated["image_path"]
+            stored_img_path = None
 
         resolved_model_version = str(model_version) if model_version is not None else self.default_model_version
 

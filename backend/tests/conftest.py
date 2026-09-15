@@ -47,14 +47,18 @@ def sample_crop_bytes():
     return encoded.tobytes()
 
 
-@pytest.fixture
-def isolated_feedback_service(tmp_path):
-    """Creates an isolated FeedbackService in a temporary directory for testing."""
+@pytest.fixture(autouse=True)
+def isolated_feedback_service(tmp_path, monkeypatch):
+    """Creates an isolated FeedbackService in a temporary directory for EVERY test automatically."""
+    import sys
     fb_service = FeedbackService(feedback_dir=tmp_path)
-    old_service = feedback_endpoint.feedback_service
-    feedback_endpoint.feedback_service = fb_service
+    monkeypatch.setattr(settings, "FEEDBACK_DIR", tmp_path)
+    monkeypatch.setattr(feedback_endpoint, "feedback_service", fb_service)
+    if "backend.app.services.feedback_service" in sys.modules:
+        monkeypatch.setattr(sys.modules["backend.app.services.feedback_service"], "feedback_service", fb_service)
+    import backend.app.services as services_pkg
+    monkeypatch.setattr(services_pkg, "feedback_service", fb_service)
     yield fb_service
-    feedback_endpoint.feedback_service = old_service
 
 
 @pytest.fixture

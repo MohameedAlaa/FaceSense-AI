@@ -9,6 +9,7 @@ import Toast from '../components/common/Toast';
 import Button from '../components/common/Button';
 import { predictApi } from '../lib/api/predict';
 import { feedbackApi } from '../lib/api/feedback';
+import { cropFaceAsBase64, normalizeBoundingBox } from '../utils/faceCrop';
 
 /**
  * State machine for AnalyzePage:
@@ -143,6 +144,7 @@ export default function AnalyzePage() {
   const handleImageSelect = (newImage) => {
     setCurrentFile(newImage.file || null);
     setImage({
+      file: newImage.file || null,
       src: newImage.src,
       name: newImage.name,
       specs: `${newImage.size} • Selected for analysis`,
@@ -194,12 +196,22 @@ export default function AnalyzePage() {
   const handleFeedbackSubmit = async (feedbackData) => {
     setSubmittingFaceId(feedbackData.faceId);
     try {
+      const normalizedBox = normalizeBoundingBox(feedbackData.bounding_box);
+
+      // Extract real face crop from the active image (webcam capture or uploaded photo)
+      const imageSource = image?.src || currentFile;
+      let cropBase64 = null;
+      if (imageSource && normalizedBox) {
+        cropBase64 = await cropFaceAsBase64(imageSource, normalizedBox);
+      }
+
       const payload = {
         feedback_type: feedbackData.feedback_type,
         predicted_emotion: feedbackData.predicted_emotion,
         confidence: feedbackData.confidence,
         face_index: feedbackData.face_index,
-        bounding_box: feedbackData.bounding_box,
+        bounding_box: normalizedBox,
+        image_base64: cropBase64,
         model_version: feedbackData.model_version || modelInfo?.model_name || 'ResidualEmotionCNN-Candidate-epoch39',
         notes: `Submitted via FaceSense Web Analyze workspace for ${feedbackData.faceLabel || 'Face'} (index ${feedbackData.face_index})`,
       };
@@ -284,11 +296,10 @@ export default function AnalyzePage() {
                 <button
                   type="button"
                   onClick={() => setShowBoxes((prev) => !prev)}
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
-                    showBoxes
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${showBoxes
                       ? "bg-white dark:bg-[#171F36] text-slate-900 dark:text-[#F8FAFC] shadow-sm border border-slate-200 dark:border-[#1E294B]"
                       : "text-slate-500 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]"
-                  }`}
+                    }`}
                   title="Toggle face bounding boxes"
                 >
                   <span className="material-symbols-outlined text-[14px] text-[#0891B2] dark:text-[#22D3EE]">
@@ -300,11 +311,10 @@ export default function AnalyzePage() {
                 <button
                   type="button"
                   onClick={() => setShowConfidence((prev) => !prev)}
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
-                    showConfidence
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${showConfidence
                       ? "bg-white dark:bg-[#171F36] text-slate-900 dark:text-[#F8FAFC] shadow-sm border border-slate-200 dark:border-[#1E294B]"
                       : "text-slate-500 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]"
-                  }`}
+                    }`}
                   title="Toggle confidence labels"
                 >
                   <span className="material-symbols-outlined text-[14px] text-[#6C63FF]">
@@ -415,7 +425,7 @@ export default function AnalyzePage() {
             imageSrc={image?.src}
             faces={[]}
             selectedFaceId={null}
-            onSelectFace={() => {}}
+            onSelectFace={() => { }}
             zoom={zoom}
             showBoxes={false}
             showConfidence={false}
@@ -474,7 +484,7 @@ export default function AnalyzePage() {
                 imageSrc={image.src}
                 faces={[]}
                 selectedFaceId={null}
-                onSelectFace={() => {}}
+                onSelectFace={() => { }}
                 zoom={zoom}
                 showBoxes={false}
                 showConfidence={false}
@@ -602,11 +612,10 @@ export default function AnalyzePage() {
         <button
           type="button"
           onClick={() => setSelectedFaceId(null)}
-          className={`py-1.5 min-h-[36px] rounded text-center transition-colors truncate cursor-pointer ${
-            selectedFaceId === null
+          className={`py-1.5 min-h-[36px] rounded text-center transition-colors truncate cursor-pointer ${selectedFaceId === null
               ? "bg-white dark:bg-[#171F36] text-slate-900 dark:text-[#F8FAFC] font-medium shadow-sm"
               : "text-slate-500 dark:text-[#64748B] hover:text-slate-900 dark:hover:text-[#F8FAFC]"
-          }`}
+            }`}
         >
           All ({faces.length})
         </button>
@@ -618,11 +627,10 @@ export default function AnalyzePage() {
               type="button"
               id={`tab-face-${f.id}`}
               onClick={() => setSelectedFaceId(f.id)}
-              className={`py-1.5 min-h-[36px] rounded text-center transition-colors flex items-center justify-center gap-1 min-w-0 truncate cursor-pointer ${
-                selectedFaceId === f.id
+              className={`py-1.5 min-h-[36px] rounded text-center transition-colors flex items-center justify-center gap-1 min-w-0 truncate cursor-pointer ${selectedFaceId === f.id
                   ? "bg-white dark:bg-[#171F36] text-slate-900 dark:text-[#F8FAFC] font-medium shadow-sm border border-[#6C63FF]/40"
                   : "text-slate-500 dark:text-[#64748B] hover:text-slate-900 dark:hover:text-[#F8FAFC]"
-              }`}
+                }`}
             >
               {isSubmitted ? (
                 <span className="material-symbols-outlined text-[14px] text-emerald-500 shrink-0">check_circle</span>
@@ -699,11 +707,10 @@ export default function AnalyzePage() {
                   type="button"
                   id={`btn-select-face-review-${f.id}`}
                   onClick={() => setSelectedFaceId(f.id)}
-                  className={`flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
-                    isRecorded
+                  className={`flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-lg border text-xs font-medium transition-colors cursor-pointer ${isRecorded
                       ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                       : 'border-slate-200 dark:border-[#1E294B] bg-white dark:bg-[#0B1020] text-slate-700 dark:text-[#F8FAFC] hover:border-[#6C63FF]'
-                  }`}
+                    }`}
                 >
                   <span className={`material-symbols-outlined text-[16px] ${isRecorded ? 'text-emerald-500' : 'text-[#6C63FF]'}`}>
                     {isRecorded ? 'check_circle' : 'face'}

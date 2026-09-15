@@ -28,4 +28,4 @@ class User(Base):
         nullable=False,
     )
 
-    feedback_records = relationship("FeedbackRecord", back_populates="user")
+    feedback_records = relationship("FeedbackRecord", back_populates="user", foreign_keys="FeedbackRecord.user_id")

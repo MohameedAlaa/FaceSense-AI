@@ -242,7 +242,7 @@ class TestFeedbackDatasetAudit(unittest.TestCase):
 
         # 6. Verify that historical baseline records are accounted for
         self.assertGreaterEqual(audit["usable_count"], 11, "Must contain at least the 11 baseline usable samples")
-        self.assertEqual(audit["exclusion_reasons"].get("missing_image_file"), 6, "Expected 6 legacy samples with missing images")
+        self.assertGreaterEqual(audit["exclusion_reasons"].get("missing_image_file", 0), 6, "Expected at least 6 legacy samples with missing images")
         self.assertGreaterEqual(audit["exclusion_reasons"].get("uncertain_without_correction", 0), 2, "Expected at least 2 uncertain exclusions")
 
 

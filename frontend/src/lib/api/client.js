@@ -85,7 +85,10 @@ export async function request(endpoint, options = {}) {
     body = JSON.stringify(body);
   }
 
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  let cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  if (cleanEndpoint.startsWith('/api/v1/')) {
+    cleanEndpoint = cleanEndpoint.slice(7);
+  }
   const url = `${API_BASE_URL}${cleanEndpoint}`;
 
   try {
@@ -138,6 +141,65 @@ export async function request(endpoint, options = {}) {
     // Network failure, CORS blockage, or offline
     throw new ApiError(
       err.message || 'Unable to connect to FaceSense backend service. Please verify the server is running.',
+      0,
+      err
+    );
+  }
+}
+
+/**
+ * Authenticated binary/blob HTTP request wrapper.
+ * Useful for authenticated images, downloads, and media resources.
+ */
+export async function requestBlob(endpoint, options = {}) {
+  const token = getAuthToken();
+
+  const headers = {
+    ...(options.headers || {}),
+  };
+
+  if (token && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  let cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  if (cleanEndpoint.startsWith('/api/v1/')) {
+    cleanEndpoint = cleanEndpoint.slice(7);
+  }
+  const url = `${API_BASE_URL}${cleanEndpoint}`;
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    if (!response.ok) {
+      let errorData = null;
+      try {
+        errorData = await response.json();
+      } catch {
+        // Response was not JSON
+      }
+
+      if (response.status === 401) {
+        notifyUnauthorized();
+      }
+
+      let message = `Request failed with status ${response.status}`;
+      if (errorData?.detail) {
+        message = errorData.detail;
+      }
+      throw new ApiError(message, response.status, errorData);
+    }
+
+    return await response.blob();
+  } catch (err) {
+    if (err instanceof ApiError) {
+      throw err;
+    }
+    throw new ApiError(
+      err.message || 'Unable to load resource from FaceSense backend service.',
       0,
       err
     );
