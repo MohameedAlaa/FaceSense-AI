@@ -155,6 +155,10 @@ class Settings(BaseModel):
     RATE_LIMIT_PREDICT: str = Field(default=os.getenv("RATE_LIMIT_PREDICT", "30/minute"))
     RATE_LIMIT_FEEDBACK: str = Field(default=os.getenv("RATE_LIMIT_FEEDBACK", "60/minute"))
     RATE_LIMIT_AUTH: str = Field(default=os.getenv("RATE_LIMIT_AUTH", "10/minute"))
+    RATE_LIMIT_MAX_KEYS: int = Field(
+        default=int(os.getenv("RATE_LIMIT_MAX_KEYS", "10000")),
+        description="Maximum number of in-memory rate-limit tracking keys before oldest-entry eviction",
+    )
 
     # ML Configuration & Paths
     MODEL_CHECKPOINT_PATH: Path = WORKSPACE_ROOT / "ml" / "models" / "checkpoints" / "final" / "best_model.pt"
