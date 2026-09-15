@@ -1,18 +1,41 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import AppShell from '../components/layout/AppShell';
 import { useAuth } from '../hooks/useAuth';
 
-// Pages
+// Eagerly loaded public & primary flow pages
 import LandingPage from '../pages/LandingPage';
 import LoginPage from '../pages/LoginPage';
 import RegisterPage from '../pages/RegisterPage';
-import DashboardPage from '../pages/DashboardPage';
 import AnalyzePage from '../pages/AnalyzePage';
-import HistoryPage from '../pages/HistoryPage';
-import InsightsPage from '../pages/InsightsPage';
-import SettingsPage from '../pages/SettingsPage';
-import AdminPage from '../pages/AdminPage';
+
+// Lazy-loaded secondary authenticated & administrative pages
+const DashboardPage = lazy(() => import('../pages/DashboardPage'));
+const HistoryPage = lazy(() => import('../pages/HistoryPage'));
+const InsightsPage = lazy(() => import('../pages/InsightsPage'));
+const SettingsPage = lazy(() => import('../pages/SettingsPage'));
+const AdminPage = lazy(() => import('../pages/AdminPage'));
+
+/**
+ * Lightweight loading fallback for lazy-loaded route chunks.
+ * Visually consistent with FaceSense UI, theme-adaptive, accessible, and non-blocking.
+ */
+function RouteLoadingFallback() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading page content"
+      className="min-h-[40vh] flex flex-col items-center justify-center p-8 w-full"
+    >
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-2 border-[#6C63FF]/30 border-t-[#6C63FF] rounded-full animate-spin" />
+        <span className="text-xs font-medium text-slate-500 dark:text-[#94A3B8]">
+          Loading workspace...
+        </span>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Route guard requiring active user authentication.
@@ -132,7 +155,9 @@ export default function AppRoutes() {
         element={
           <ProtectedRoute>
             <AppShell>
-              <DashboardPage />
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <DashboardPage />
+              </Suspense>
             </AppShell>
           </ProtectedRoute>
         }
@@ -152,7 +177,9 @@ export default function AppRoutes() {
         element={
           <ProtectedRoute>
             <AppShell>
-              <HistoryPage />
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <HistoryPage />
+              </Suspense>
             </AppShell>
           </ProtectedRoute>
         }
@@ -162,7 +189,9 @@ export default function AppRoutes() {
         element={
           <ProtectedRoute>
             <AppShell>
-              <InsightsPage />
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <InsightsPage />
+              </Suspense>
             </AppShell>
           </ProtectedRoute>
         }
@@ -172,7 +201,9 @@ export default function AppRoutes() {
         element={
           <ProtectedRoute>
             <AppShell>
-              <SettingsPage />
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <SettingsPage />
+              </Suspense>
             </AppShell>
           </ProtectedRoute>
         }
@@ -184,7 +215,9 @@ export default function AppRoutes() {
         element={
           <AdminRoute>
             <AppShell>
-              <AdminPage />
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <AdminPage />
+              </Suspense>
             </AppShell>
           </AdminRoute>
         }
