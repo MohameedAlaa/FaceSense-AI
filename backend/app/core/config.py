@@ -1,10 +1,40 @@
 import os
 from pathlib import Path
 from typing import List, Optional
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 # Base workspace path
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+
+def _load_env_file() -> None:
+    """Load .env from the workspace root into os.environ (keys already set are not overwritten).
+
+    This is a lightweight alternative to python-dotenv. It only handles
+    simple KEY=VALUE lines; comments (#) and blank lines are skipped.
+    It runs before the Settings singleton is constructed so that
+    JWT_SECRET_KEY (and other secrets) can be provided via .env in
+    development and CI without any additional dependencies.
+    """
+    env_file = WORKSPACE_ROOT / ".env"
+    if not env_file.is_file():
+        return
+    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        # Strip optional surrounding quotes
+        if len(value) >= 2 and value[0] in ('"', "'") and value[0] == value[-1]:
+            value = value[1:-1]
+        # Never overwrite values already set in the real environment
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_env_file()
 
 
 class Settings(BaseModel):
@@ -51,10 +81,29 @@ class Settings(BaseModel):
     )
 
     # Security settings
-    JWT_SECRET_KEY: str = Field(
-        default=os.getenv("JWT_SECRET_KEY", "insecure-dev-secret-key-please-change-in-prod"),
-        description="Secret key for JWT generation"
+    # JWT_SECRET_KEY is mandatory. Set it via the JWT_SECRET_KEY environment variable.
+    # The application will refuse to start if it is missing or empty.
+    JWT_SECRET_KEY: Optional[str] = Field(
+        default=os.getenv("JWT_SECRET_KEY") or None,
+        description="Secret key for JWT generation (mandatory – must be set via JWT_SECRET_KEY env var)"
     )
+
+    @field_validator("JWT_SECRET_KEY")
+    @classmethod
+    def validate_jwt_secret_key(cls, v: Optional[str]) -> str:
+        """Reject missing, empty, whitespace-only, or known-insecure placeholder values at startup."""
+        if not v or not v.strip():
+            raise ValueError(
+                "JWT_SECRET_KEY is required. "
+                "Set it via the JWT_SECRET_KEY environment variable (see .env.example)."
+            )
+        if v == "insecure-dev-secret-key-please-change-in-prod":
+            raise ValueError(
+                "JWT_SECRET_KEY must not use the insecure placeholder value. "
+                "Generate a strong random secret and set it via the JWT_SECRET_KEY environment variable."
+            )
+        return v
+
     JWT_ALGORITHM: str = Field(default=os.getenv("JWT_ALGORITHM", "HS256"))
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60")))
 
