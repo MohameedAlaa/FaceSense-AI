@@ -1,11 +1,14 @@
+import logging
 import threading
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from typing import Optional
 
 from backend.app.models.user import User
 from backend.app.schemas.auth import UserRegisterRequest
 from backend.app.core.security import get_password_hash, verify_password
+
+logger = logging.getLogger(__name__)
 
 # Module-level lock to serialize concurrent admin bootstrap attempts.
 # This prevents a TOCTOU race where two simultaneous requests both pass
@@ -27,6 +30,15 @@ class AuthService:
             return db_user
         except IntegrityError:
             db.rollback()
+            logger.warning("User registration failed: database integrity constraint violation.")
+            return None
+        except SQLAlchemyError as exc:
+            db.rollback()
+            logger.error("User registration failed due to database error: %s", type(exc).__name__)
+            return None
+        except Exception as exc:
+            db.rollback()
+            logger.error("Unexpected error during user registration: %s", type(exc).__name__)
             return None
 
     def bootstrap_admin(self, db: Session, email: str, password: str) -> Optional[User]:
