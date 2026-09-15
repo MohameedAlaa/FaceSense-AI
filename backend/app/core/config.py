@@ -107,6 +107,17 @@ class Settings(BaseModel):
     JWT_ALGORITHM: str = Field(default=os.getenv("JWT_ALGORITHM", "HS256"))
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60")))
 
+    # Admin bootstrap settings
+    # ADMIN_BOOTSTRAP_KEY is an optional one-time secret used to create the first admin account.
+    # If absent or empty, the admin bootstrap endpoint is effectively disabled.
+    # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+    # Never hardcode a real value here; set it only in .env (gitignored).
+    ADMIN_BOOTSTRAP_KEY: Optional[str] = Field(
+        default=os.getenv("ADMIN_BOOTSTRAP_KEY") or None,
+        description="One-time secret key required to create the initial admin account (optional)"
+    )
+
+
     # Upload settings
     MAX_IMAGE_UPLOAD_MB: int = Field(default=int(os.getenv("MAX_IMAGE_UPLOAD_MB", "10")))
     ALLOWED_IMAGE_MIMES: List[str] = ["image/jpeg", "image/png", "image/webp"]

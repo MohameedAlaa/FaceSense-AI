@@ -24,3 +24,8 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     created_at: datetime
+
+class AdminBootstrapRequest(BaseModel):
+    email: str = Field(..., pattern=EMAIL_REGEX)
+    password: str = Field(..., min_length=8, description="Password must be at least 8 characters")
+    bootstrap_key: str = Field(..., description="Secret bootstrap key (set via ADMIN_BOOTSTRAP_KEY env var)")
