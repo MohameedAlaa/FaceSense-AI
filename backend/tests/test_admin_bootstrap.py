@@ -506,10 +506,13 @@ class TestPrivilegeEscalation:
         self, bootstrap_client
     ):
         """Even many repeated correct-key bootstrap attempts can only produce 1 admin."""
+        from backend.app.core.rate_limit import rate_limit_auth
+
         first = bootstrap_client.post(BOOTSTRAP_URL, json=_bootstrap_payload())
         assert first.status_code == 201
 
         for i in range(10):
+            rate_limit_auth.history.clear()
             resp = bootstrap_client.post(
                 BOOTSTRAP_URL,
                 json=_bootstrap_payload(email=f"admin{i}@example.com"),

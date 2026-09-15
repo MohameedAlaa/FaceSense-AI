@@ -101,3 +101,17 @@ def client_with_db(test_db_session):
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiters():
+    """Reset in-memory rate limiter histories before and after each test for test isolation."""
+    from backend.app.core.rate_limit import rate_limit_predict, rate_limit_feedback, rate_limit_auth
+    rate_limit_predict.history.clear()
+    rate_limit_feedback.history.clear()
+    rate_limit_auth.history.clear()
+    yield
+    rate_limit_predict.history.clear()
+    rate_limit_feedback.history.clear()
+    rate_limit_auth.history.clear()
+

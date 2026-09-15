@@ -17,6 +17,7 @@ from backend.app.schemas.auth import (
 )
 from backend.app.services.auth_service import auth_service
 from backend.app.core.dependencies import get_current_active_user
+from backend.app.core.rate_limit import rate_limit_auth
 from backend.app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/register", response_model=UserResponse)
+@router.post("/register", response_model=UserResponse, dependencies=[Depends(rate_limit_auth)])
 def register(
     *,
     db: Session = Depends(get_db),
@@ -44,7 +45,12 @@ def register(
     return user
 
 
-@router.post("/admin-bootstrap", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/admin-bootstrap",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit_auth)],
+)
 def admin_bootstrap(
     *,
     db: Session = Depends(get_db),
@@ -91,7 +97,7 @@ def admin_bootstrap(
     return admin
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, dependencies=[Depends(rate_limit_auth)])
 def login(
     db: Session = Depends(get_db), form_data: OAuth2PasswordRequestForm = Depends()
 ) -> Any:
