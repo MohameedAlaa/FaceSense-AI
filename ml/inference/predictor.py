@@ -5,7 +5,7 @@ and running inference on single face images with exact validation/test preproces
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, Sequence
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 import torch
@@ -204,6 +204,80 @@ class EmotionPredictor:
         )
 
     @torch.no_grad()
+    def predict_batch(
+        self,
+        image_inputs: Sequence[Union[str, Path, Image.Image, np.ndarray]],
+        confidence_threshold: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Runs batched inference on multiple face images in a single model forward pass.
+
+        Args:
+            image_inputs: Sequence of image paths, PIL Images, or numpy arrays.
+            confidence_threshold: Optional threshold override.
+
+        Returns:
+            List of prediction dictionaries corresponding to input images in original order.
+        """
+        if not image_inputs:
+            return []
+
+        threshold = (
+            self.confidence_threshold
+            if confidence_threshold is None
+            else float(confidence_threshold)
+        )
+
+        # 1. Preprocess each image crop to shape [1, 1, 48, 48]
+        tensors = []
+        for img_input in image_inputs:
+            tensor, _ = self.preprocess_image(img_input)
+            if tensor.dim() == 3:
+                tensor = tensor.unsqueeze(0)
+            tensors.append(tensor)
+
+        # 2. Concatenate into single batch tensor [N, 1, 48, 48]
+        batch_tensor = torch.cat(tensors, dim=0).to(self.device)
+
+        # 3. Single forward pass -> logits [N, num_classes]
+        logits = self.model(batch_tensor)
+
+        # 4. Softmax probabilities -> [N, num_classes]
+        probs = torch.softmax(logits, dim=1).cpu().numpy()
+
+        # 5. Map rows back to individual prediction dicts in original order
+        results: List[Dict[str, Any]] = []
+        resolved_checkpoint = str(self.checkpoint_path.resolve())
+
+        for idx in range(len(image_inputs)):
+            row_probs = probs[idx]
+            prob_dict = {
+                class_name: float(row_probs[c_idx])
+                for c_idx, class_name in enumerate(self.class_names)
+            }
+
+            top_idx = int(np.argmax(row_probs))
+            top_class = self.class_names[top_idx]
+            top_confidence = float(row_probs[top_idx])
+
+            is_uncertain = top_confidence < threshold
+            predicted_emotion = "uncertain" if is_uncertain else top_class
+
+            results.append({
+                "predicted_emotion": predicted_emotion,
+                "confidence": top_confidence,
+                "probabilities": prob_dict,
+                "raw_predicted_emotion": top_class,
+                "is_uncertain": is_uncertain,
+                "confidence_threshold": threshold,
+                "model_name": self.model_name,
+                "model_version": self.model_version,
+                "checkpoint_path": resolved_checkpoint,
+            })
+
+        return results
+
+    @torch.no_grad()
     def predict(
         self,
         image_input: Union[str, Path, Image.Image, np.ndarray],
@@ -217,50 +291,10 @@ class EmotionPredictor:
             confidence_threshold: Optional threshold override.
 
         Returns:
-            Dictionary containing:
-                - predicted_emotion: Name of top class, or 'uncertain' if below threshold.
-                - confidence: Float confidence score between 0.0 and 1.0.
-                - probabilities: Dictionary mapping all 7 emotion names to probabilities.
-                - raw_predicted_emotion: Top class name before thresholding.
-                - is_uncertain: Boolean flag indicating if confidence < threshold.
-                - model_name: Name of model architecture.
-                - checkpoint_path: String path to loaded checkpoint.
+            Dictionary containing prediction results.
         """
-        threshold = self.confidence_threshold if confidence_threshold is None else float(confidence_threshold)
-
-        tensor, _ = self.preprocess_image(image_input)
-        tensor = tensor.to(self.device)
-
-        # Forward pass -> logits
-        logits = self.model(tensor)
-
-        # Softmax probabilities
-        probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
-
-        # Map to classes
-        prob_dict = {
-            class_name: float(probs[idx])
-            for idx, class_name in enumerate(self.class_names)
-        }
-
-        top_idx = int(np.argmax(probs))
-        top_class = self.class_names[top_idx]
-        top_confidence = float(probs[top_idx])
-
-        is_uncertain = top_confidence < threshold
-        predicted_emotion = "uncertain" if is_uncertain else top_class
-
-        return {
-            "predicted_emotion": predicted_emotion,
-            "confidence": top_confidence,
-            "probabilities": prob_dict,
-            "raw_predicted_emotion": top_class,
-            "is_uncertain": is_uncertain,
-            "confidence_threshold": threshold,
-            "model_name": self.model_name,
-            "model_version": self.model_version,
-            "checkpoint_path": str(self.checkpoint_path.resolve()),
-        }
+        results = self.predict_batch([image_input], confidence_threshold=confidence_threshold)
+        return results[0]
 
     def predict_with_visual(
         self,

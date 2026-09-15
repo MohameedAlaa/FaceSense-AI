@@ -103,19 +103,22 @@ class ImagePredictionService:
             else settings.DEFAULT_CONFIDENCE_THRESHOLD
         )
 
-        predictions: List[FacePredictionItem] = []
+        face_crops = []
         for bbox in bboxes:
-            x, y, w, h = bbox
             if is_fallback:
                 face_crop = img_bgr.copy()
             else:
                 face_crop = self.detector.crop_face(img_bgr, bbox, margin_ratio=0.05)
+            face_crops.append(face_crop)
 
-            pred_result = self.predictor.predict(
-                face_crop,
-                confidence_threshold=threshold,
-            )
+        batch_results = self.predictor.predict_batch(
+            face_crops,
+            confidence_threshold=threshold,
+        )
 
+        predictions: List[FacePredictionItem] = []
+        for bbox, pred_result in zip(bboxes, batch_results):
+            x, y, w, h = bbox
             predictions.append(
                 FacePredictionItem(
                     box=BoundingBox(x=int(x), y=int(y), w=int(w), h=int(h)),
