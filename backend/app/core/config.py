@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from typing import List, Optional
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 # Base workspace path
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -45,18 +45,46 @@ class Settings(BaseModel):
 
     # CORS settings
     CORS_ALLOWED_ORIGINS: str = Field(
-        default=os.getenv("CORS_ALLOWED_ORIGINS", "*"),
-        description="Comma-separated list of allowed origins (or * for all)"
+        default=os.getenv(
+            "CORS_ALLOWED_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173",
+        ),
+        description="Comma-separated list of allowed origins (explicit origins required when credentials enabled)",
     )
-    CORS_ALLOW_CREDENTIALS: bool = True
+    CORS_ALLOW_CREDENTIALS: bool = Field(
+        default=os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() in ("true", "1", "yes"),
+        description="Whether to allow credentials in cross-origin requests",
+    )
     CORS_ALLOW_METHODS: List[str] = ["*"]
     CORS_ALLOW_HEADERS: List[str] = ["*"]
 
     @property
     def get_cors_origins(self) -> List[str]:
-        if self.CORS_ALLOWED_ORIGINS == "*":
-            return ["*"]
-        return [origin.strip() for origin in self.CORS_ALLOWED_ORIGINS.split(",")]
+        raw = self.CORS_ALLOWED_ORIGINS
+        if not raw or not raw.strip():
+            return []
+        origins = [
+            origin.strip().rstrip("/") if origin.strip() != "/" else "/"
+            for origin in raw.split(",")
+            if origin.strip()
+        ]
+        if "*" in origins and self.CORS_ALLOW_CREDENTIALS:
+            raise ValueError(
+                "Unsafe CORS configuration: wildcard '*' origin cannot be used when CORS credentials are enabled."
+            )
+        return origins
+
+    @model_validator(mode="after")
+    def validate_cors_credentials_and_origins(self) -> "Settings":
+        raw = self.CORS_ALLOWED_ORIGINS
+        if raw is not None:
+            origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+            if "*" in origins and self.CORS_ALLOW_CREDENTIALS:
+                raise ValueError(
+                    "Unsafe CORS configuration: wildcard '*' origin cannot be used when CORS credentials are enabled. "
+                    "Configure explicit origins (e.g. 'http://localhost:5173,http://127.0.0.1:5173')."
+                )
+        return self
 
     # Database settings (PostgreSQL)
     DATABASE_URL: Optional[str] = Field(
