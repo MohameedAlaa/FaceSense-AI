@@ -325,8 +325,140 @@ class TestFaceDetectionAndWebcam(unittest.TestCase):
         self.assertEqual(res["predicted_emotion"], "uncertain")
         self.assertTrue(res["is_uncertain"])
 
+    # ── Input Downscaling Optimization & Regression Tests ──────────
+
+    def test_image_smaller_or_equal_max_dimension_bypasses_resize(self):
+        """Verify images with max dimension <= 640px are not resized."""
+        from unittest.mock import patch
+
+        img_640x480 = np.full((480, 640, 3), 128, dtype=np.uint8)
+        img_320x240 = np.full((240, 320, 3), 128, dtype=np.uint8)
+
+        with patch("cv2.resize", wraps=cv2.resize) as spy_resize:
+            self.detector.detect_faces(img_640x480)
+            self.detector.detect_faces(img_320x240)
+            # Neither image should trigger detector-input downscaling resize
+            self.assertEqual(spy_resize.call_count, 0)
+
+    def test_image_greater_than_max_dimension_triggers_downscaling(self):
+        """Verify images with max dimension > 640px trigger proportional downscaling."""
+        from unittest.mock import patch
+
+        img_1280x720 = np.full((720, 1280, 3), 128, dtype=np.uint8)
+
+        with patch("cv2.resize", wraps=cv2.resize) as spy_resize:
+            self.detector.detect_faces(img_1280x720)
+            # cv2.resize should be called exactly once for downscaling
+            self.assertEqual(spy_resize.call_count, 1)
+            call_args = spy_resize.call_args[0]
+            # Verify target size (new_w, new_h) = (640, 360)
+            target_size = call_args[1]
+            self.assertEqual(target_size, (640, 360))
+
+    def test_aspect_ratio_preservation_non_standard_resolution(self):
+        """Verify non-standard aspect ratios are scaled proportionally without distortion."""
+        from unittest.mock import patch
+
+        # 1200x400 (3:1 aspect ratio)
+        img_wide = np.full((400, 1200, 3), 128, dtype=np.uint8)
+
+        with patch("cv2.resize", wraps=cv2.resize) as spy_resize:
+            self.detector.detect_faces(img_wide)
+            self.assertEqual(spy_resize.call_count, 1)
+            target_size = spy_resize.call_args[0][1]
+            # 640 max dim -> (640, 213)
+            self.assertEqual(target_size[0], 640)
+            self.assertEqual(target_size[1], int(round(400 * (640 / 1200))))
+
+    def test_original_input_image_not_mutated(self):
+        """Verify detect_faces does not mutate the input array in-place."""
+        img = np.random.randint(0, 256, (720, 1280, 3), dtype=np.uint8)
+        img_copy = img.copy()
+
+        self.detector.detect_faces(img)
+        self.assertTrue(np.array_equal(img, img_copy))
+
+    def test_bounding_box_mapping_accuracy_and_validity(self):
+        """Verify bounding boxes on a large 1280x720 image map back accurately to original space."""
+        fer_face = cv2.imread(str(self.real_img_path))
+        canvas = np.full((720, 1280, 3), 160, dtype=np.uint8)
+        face_resized = cv2.resize(fer_face, (200, 200))
+        # Place face in bottom-right quadrant: x in [700, 900], y in [350, 550]
+        canvas[350:550, 700:900] = face_resized
+
+        bboxes = self.detector.detect_faces(canvas)
+        self.assertGreaterEqual(len(bboxes), 1)
+
+        bbox = bboxes[0]
+        x, y, w, h = bbox
+
+        # Bounding box must be in original coordinate space
+        self.assertGreater(x, 640, "Detected x coordinate should be in the right half of the 1280px image")
+        self.assertGreater(y, 250, "Detected y coordinate should be in the lower half of the 720px image")
+        self.assertGreater(w, 100)
+        self.assertGreater(h, 100)
+
+        # Must be strictly within canvas bounds
+        self.assertLessEqual(x + w, 1280)
+        self.assertLessEqual(y + h, 720)
+
+        # Crop must succeed with original image
+        crop = self.detector.crop_face(canvas, bbox, margin_ratio=0.0)
+        self.assertGreater(crop.shape[0], 0)
+        self.assertGreater(crop.shape[1], 0)
+
+    def test_multi_face_detection_and_ordering(self):
+        """Verify multi-face detection on 1280x720 image returns all faces with preserved ordering."""
+        fer_face = cv2.imread(str(self.real_img_path))
+        canvas = np.full((720, 1280, 3), 160, dtype=np.uint8)
+        face_1 = cv2.resize(fer_face, (180, 180))
+        face_2 = cv2.resize(fer_face, (180, 180))
+
+        # Face 1 on left, Face 2 on right
+        canvas[250:430, 200:380] = face_1
+        canvas[250:430, 800:980] = face_2
+
+        bboxes = self.detector.detect_faces(canvas)
+        self.assertEqual(len(bboxes), 2)
+
+        # Ordering must be consistent across multiple calls
+        bboxes_second_call = self.detector.detect_faces(canvas)
+        self.assertEqual(bboxes, bboxes_second_call)
+
+        # Verify coordinates of both faces map to original space
+        x_coords = [b[0] for b in bboxes]
+        self.assertTrue(any(x < 640 for x in x_coords), "Should detect a face in left half")
+        self.assertTrue(any(x > 640 for x in x_coords), "Should detect a face in right half")
+
+    def test_no_face_image_returns_empty_list(self):
+        """Verify an image without faces returns an empty list."""
+        blank = np.zeros((720, 1280, 3), dtype=np.uint8)
+        bboxes = self.detector.detect_faces(blank)
+        self.assertEqual(bboxes, [])
+
+    def test_custom_and_disabled_max_detector_dim(self):
+        """Verify configurable max_detector_dim parameter behavior."""
+        from unittest.mock import patch
+
+        # Disabled downscaling
+        detector_disabled = FaceDetector(max_detector_dim=None)
+        img_large = np.full((720, 1280, 3), 128, dtype=np.uint8)
+
+        with patch("cv2.resize", wraps=cv2.resize) as spy_resize:
+            detector_disabled.detect_faces(img_large)
+            self.assertEqual(spy_resize.call_count, 0)
+
+        # Custom smaller dimension
+        detector_custom = FaceDetector(max_detector_dim=320)
+        with patch("cv2.resize", wraps=cv2.resize) as spy_resize:
+            detector_custom.detect_faces(img_large)
+            self.assertEqual(spy_resize.call_count, 1)
+            target_size = spy_resize.call_args[0][1]
+            self.assertEqual(target_size, (320, 180))
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

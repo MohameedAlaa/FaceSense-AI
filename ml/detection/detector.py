@@ -9,6 +9,9 @@ import cv2
 import numpy as np
 
 
+DEFAULT_MAX_DETECTOR_DIM: int = 640
+
+
 class FaceDetector:
     """
     Lightweight Face Detector using OpenCV Haar Cascade Classifier.
@@ -35,6 +38,11 @@ class FaceDetector:
                                bright windows or overhead lights — a common source
                                of background Haar-feature matches — while keeping
                                the true face signal strong.
+
+      - max_detector_dim=640: Limits the maximum image dimension fed into the Haar
+                               cascade detector. Images larger than this dimension
+                               are proportionally downscaled before detection, and
+                               bounding boxes are remapped to original coordinates.
     """
 
     def __init__(
@@ -45,32 +53,43 @@ class FaceDetector:
         min_size: Tuple[int, int] = (80, 80),
         max_size: Tuple[int, int] = (),
         use_clahe: bool = True,
+        max_detector_dim: Optional[int] = DEFAULT_MAX_DETECTOR_DIM,
     ):
         """
         Args:
-            cascade_path:  Path to Haar Cascade XML file.  If None, the local
-                           repository cascade is used, falling back to the OpenCV
-                           bundled cascade.
-            scale_factor:  Image pyramid reduction factor per scale step.
-            min_neighbors: Minimum number of overlapping detection windows a
-                           candidate must accumulate before being kept as a face.
-                           Higher values reduce false positives at the cost of
-                           slightly lower recall on very small or partial faces.
-            min_size:      Minimum bounding-box dimensions (pixels).  Objects
-                           smaller than this are ignored.  Default (80, 80) removes
-                           tiny background false positives that cannot possibly
-                           be a detectable human face at usable resolution.
-            max_size:      Maximum bounding-box dimensions (pixels).  Empty tuple
-                           means no upper limit (default).
-            use_clahe:     If True (default), applies CLAHE to the grayscale image
-                           before cascade detection.  Normalises local contrast to
-                           reduce spurious matches from high-contrast backgrounds.
+            cascade_path:      Path to Haar Cascade XML file.  If None, the local
+                               repository cascade is used, falling back to the OpenCV
+                               bundled cascade.
+            scale_factor:      Image pyramid reduction factor per scale step.
+            min_neighbors:     Minimum number of overlapping detection windows a
+                               candidate must accumulate before being kept as a face.
+                               Higher values reduce false positives at the cost of
+                               slightly lower recall on very small or partial faces.
+            min_size:          Minimum bounding-box dimensions (pixels).  Objects
+                               smaller than this are ignored.  Default (80, 80) removes
+                               tiny background false positives that cannot possibly
+                               be a detectable human face at usable resolution.
+            max_size:          Maximum bounding-box dimensions (pixels).  Empty tuple
+                               means no upper limit (default).
+            use_clahe:         If True (default), applies CLAHE to the grayscale image
+                               before cascade detection.  Normalises local contrast to
+                               reduce spurious matches from high-contrast backgrounds.
+            max_detector_dim:  Maximum dimension (width or height) fed to the detector.
+                               If an input frame exceeds this dimension, it is
+                               downscaled proportionally while preserving aspect ratio.
+                               Detected boxes are remapped to original image coordinates.
+                               Default is 640. Set to None to disable downscaling.
         """
         self.scale_factor = float(scale_factor)
         self.min_neighbors = int(min_neighbors)
         self.min_size = tuple(min_size)
         self.max_size = tuple(max_size)
         self.use_clahe = bool(use_clahe)
+        self.max_detector_dim = (
+            int(max_detector_dim)
+            if max_detector_dim is not None and int(max_detector_dim) > 0
+            else None
+        )
 
         if cascade_path is None:
             # Check local repository cascade directory first
@@ -137,17 +156,40 @@ class FaceDetector:
         """
         Detects faces in a BGR, RGB, or grayscale image array.
 
+        If the maximum dimension of frame exceeds max_detector_dim, the image
+        is proportionally downscaled before running Haar cascade detection.
+        All detected bounding boxes are mapped back to original image coordinates.
+
         Args:
             frame: Numpy array representing image frame.
 
         Returns:
-            List of bounding box tuples in format [(x, y, w, h), ...].
+            List of bounding box tuples in format [(x, y, w, h), ...] in the
+            original coordinate space of the input frame.
             Returns empty list if no faces are detected or frame is empty/invalid.
         """
         if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
             return []
 
-        gray = self._preprocess(frame)
+        if frame.ndim < 2:
+            return []
+
+        h_orig, w_orig = frame.shape[:2]
+        if h_orig <= 0 or w_orig <= 0:
+            return []
+
+        max_dim = max(h_orig, w_orig)
+        is_downscaled = False
+        det_frame = frame
+
+        if self.max_detector_dim is not None and max_dim > self.max_detector_dim:
+            scale_ratio = self.max_detector_dim / float(max_dim)
+            new_w = max(1, int(round(w_orig * scale_ratio)))
+            new_h = max(1, int(round(h_orig * scale_ratio)))
+            det_frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            is_downscaled = True
+
+        gray = self._preprocess(det_frame)
         if gray is None:
             return []
 
@@ -166,8 +208,28 @@ class FaceDetector:
         if len(faces) == 0:
             return []
 
-        # Convert detected ndarray to list of tuples: (x, y, w, h)
-        return [(int(x), int(y), int(w), int(h)) for (x, y, w, h) in faces]
+        if not is_downscaled:
+            return [(int(x), int(y), int(w), int(h)) for (x, y, w, h) in faces]
+
+        inv_scale_x = float(w_orig) / float(new_w)
+        inv_scale_y = float(h_orig) / float(new_h)
+
+        rescaled_faces: List[Tuple[int, int, int, int]] = []
+        for (x, y, w, h) in faces:
+            orig_x = int(round(x * inv_scale_x))
+            orig_y = int(round(y * inv_scale_y))
+            orig_w = int(round(w * inv_scale_x))
+            orig_h = int(round(h * inv_scale_y))
+
+            # Clamp bounding box to ensure it remains inside original frame boundaries
+            orig_x = max(0, min(orig_x, w_orig - 1))
+            orig_y = max(0, min(orig_y, h_orig - 1))
+            orig_w = max(1, min(orig_w, w_orig - orig_x))
+            orig_h = max(1, min(orig_h, h_orig - orig_y))
+
+            rescaled_faces.append((orig_x, orig_y, orig_w, orig_h))
+
+        return rescaled_faces
 
     def crop_face(
         self,

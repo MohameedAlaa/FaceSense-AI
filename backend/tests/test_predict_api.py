@@ -126,3 +126,37 @@ def test_predict_multi_face_model_forward_called_once(client):
         assert response.json()["faces_detected"] == 2
         assert spy_forward.call_count == 1
 
+
+def test_predict_large_image_downscaling_original_coordinates_regression(client):
+    """Regression test: verify 1280x720 uploaded image returns bounding box in ORIGINAL coordinate space."""
+    import numpy as np
+    import cv2
+
+    img = np.full((720, 1280, 3), 160, dtype=np.uint8)
+
+    # Place real FER2013 face in right half of the 1280px image: x in [700, 920], y in [300, 520]
+    real_sample_path = WORKSPACE_ROOT / "Data(FER2013)" / "test" / "happy" / "PrivateTest_10077120.jpg"
+    real_face = cv2.imread(str(real_sample_path))
+    resized_face = cv2.resize(real_face, (220, 220))
+    img[300:520, 700:920] = resized_face
+
+    _, enc = cv2.imencode(".jpg", img)
+    response = client.post(
+        "/api/v1/predict/image",
+        files={"file": ("hd_image.jpg", enc.tobytes(), "image/jpeg")},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["faces_detected"] >= 1
+
+    box = data["predictions"][0]["box"]
+    # If coordinates were not remapped to original space, x would be <= 640 (since downscaled w=640)
+    assert box["x"] > 640, f"Expected box['x'] > 640 in original coordinates, got {box['x']}"
+    assert box["x"] + box["w"] <= 1280
+    assert box["y"] + box["h"] <= 720
+    assert data["predictions"][0]["emotion"] in [
+        "angry", "disgust", "fear", "happy", "neutral", "sad", "surprise", "uncertain"
+    ]
+
+
+
