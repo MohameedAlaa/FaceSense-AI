@@ -3,9 +3,10 @@ import numpy as np
 from fastapi import UploadFile, HTTPException
 
 from backend.app.core.config import settings
-from backend.app.services.prediction_service import ImageDecodeError
+
 
 async def validate_image_file(file: UploadFile, max_bytes: int = None) -> bytes:
+    from backend.app.services.prediction_service import ImageDecodeError
     if max_bytes is None:
         max_bytes = settings.MAX_IMAGE_UPLOAD_MB * 1024 * 1024
 
@@ -33,3 +34,31 @@ async def validate_image_file(file: UploadFile, max_bytes: int = None) -> bytes:
         raise ImageDecodeError("Failed to decode uploaded image. File may be corrupted.")
 
     return file_bytes
+
+
+def validate_image_bytes(image_bytes: bytes, max_bytes: int = None) -> np.ndarray:
+    """
+    Validates raw image bytes:
+    1. Checks that length does not exceed max_bytes (if provided).
+    2. Verifies magic bytes for supported formats (JPEG, PNG, WebP).
+    3. Decodes using OpenCV to ensure data is a valid, non-corrupted image.
+    Returns decoded BGR image as a numpy ndarray.
+    Raises ValueError on validation failure.
+    """
+    if max_bytes is not None and len(image_bytes) > max_bytes:
+        raise ValueError(f"Image payload too large. Maximum allowed size is {max_bytes} bytes.")
+
+    if not (
+        image_bytes.startswith(b'\xff\xd8\xff') or  # JPEG
+        image_bytes.startswith(b'\x89PNG\r\n\x1a\n') or  # PNG
+        (len(image_bytes) >= 12 and image_bytes[0:4] == b'RIFF' and image_bytes[8:12] == b'WEBP')  # WEBP
+    ):
+        raise ValueError("Invalid image content: not a supported JPEG, PNG, or WebP format.")
+
+    np_img = np.frombuffer(image_bytes, np.uint8)
+    img_bgr = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+
+    if img_bgr is None or img_bgr.size == 0:
+        raise ValueError("Failed to decode image data: file may be corrupted or truncated.")
+
+    return img_bgr

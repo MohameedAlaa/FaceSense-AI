@@ -1,5 +1,5 @@
 from typing import Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.app.db.session import get_db
@@ -15,8 +15,31 @@ from backend.app.services.feedback_service import feedback_service
 
 router = APIRouter()
 
+MAX_FEEDBACK_REQUEST_BYTES = 4 * 1024 * 1024  # 4 MB payload guard
 
-@router.post("", response_model=FeedbackCreateResponse, status_code=201, tags=["Feedback"], dependencies=[Depends(rate_limit_feedback)])
+
+def verify_feedback_payload_size(request: Request) -> None:
+    """Rejects incoming feedback requests exceeding maximum allowed body size before parsing."""
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            length = int(content_length)
+            if length > MAX_FEEDBACK_REQUEST_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Feedback payload too large. Maximum size is {MAX_FEEDBACK_REQUEST_BYTES // (1024 * 1024)}MB.",
+                )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length header.")
+
+
+@router.post(
+    "",
+    response_model=FeedbackCreateResponse,
+    status_code=201,
+    tags=["Feedback"],
+    dependencies=[Depends(rate_limit_feedback), Depends(verify_feedback_payload_size)],
+)
 def submit_feedback(
     request: FeedbackCreateRequest,
     db: Optional[Session] = Depends(get_db),

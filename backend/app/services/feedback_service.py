@@ -68,18 +68,18 @@ class FeedbackService:
             fb_state = FeedbackState.UNCERTAIN
 
         if request.image_base64:
+            raw_b64 = request.image_base64
+            if "," in raw_b64:
+                raw_b64 = raw_b64.split(",", 1)[1]
             try:
-                raw_b64 = request.image_base64
-                if "," in raw_b64:
-                    raw_b64 = raw_b64.split(",", 1)[1]
-                img_bytes = base64.b64decode(raw_b64)
-                np_arr = np.frombuffer(img_bytes, dtype=np.uint8)
-                crop_img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-                if crop_img is None:
-                    raise ValueError("Failed to decode base64 image data into valid image")
+                img_bytes = base64.b64decode(raw_b64.strip())
             except Exception as e:
-                logger.warning("Base64 image decoding failed, falling back to dummy image: %s", e)
-                crop_img = np.zeros((48, 48, 3), dtype=np.uint8)
+                raise ValueError(f"Failed to decode base64 image data: invalid encoding") from e
+
+            np_arr = np.frombuffer(img_bytes, dtype=np.uint8)
+            crop_img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            if crop_img is None or crop_img.size == 0:
+                raise ValueError("Failed to decode base64 image data into valid image: corrupted or invalid image format")
         else:
             # Create a 48x48 neutral placeholder if no image was provided
             crop_img = np.zeros((48, 48, 3), dtype=np.uint8)
